@@ -90,6 +90,13 @@
 - **Pass line**: Verify passes on full gate green plus zero `blocking`
   findings; critique passes on zero `blocking` findings. `warning`
   findings get one mechanical sweep and never start a round.
+- **Next action**: `scripts/run-change next --store <slug> --name <change>`
+  — the orchestration policy as one read-only function (`next_action` in
+  `scripts/lib.sh`) that maps a change's state file + session log to the
+  single next step (`action`, `tier`, `model`, `set_phase`, `reason`). The
+  agent does the step and records results; it never re-derives the
+  lifecycle from prose. Caps live beside it: `FIX_CAP`, `PROPOSE_CAP`,
+  `ADVISOR_CAP`.
 - **Gate**: the project's quick or full check command
   (`orchestration.gate_quick` / `gate_full` in the *store's*
   `openspec/config.yaml` — single rule: a target project must not contain

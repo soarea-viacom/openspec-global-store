@@ -243,3 +243,109 @@ verify_model() { checker_model "$1" "$(implementer_model "$1" "$2")" implementer
 # critic_model: checker for the Propose critique, distinct from the proposer.
 # Propose runs at deep, so this normally resolves to standard's model.
 critic_model() { checker_model "$1" "$(proposer_model "$1" "$2")" proposer; }
+
+# --- next_action: the orchestration policy as one function -----------------
+# next_action <store-slug> <change-name> prints the single next step for a
+# change, derived only from its state file and session log — never from
+# chat memory. Output is key: value lines:
+#   action    what to do (see the doc's lifecycle; gate1/gate2 = ask human)
+#   tier      effort tier for the step, or none
+#   model     resolved model id, or - for none-tier steps
+#   set_phase phase to record once the step completes (absent = unchanged)
+#   reason    the rule that produced this answer
+# Every threshold here mirrors a rule in AUTONOMOUS-ORCHESTRATION.md; if
+# they ever disagree, the doc is wrong and this is right, because this is
+# what runs. Read-only: the orchestrator does the step and records results.
+FIX_CAP=3
+PROPOSE_CAP=2
+
+next_action() {
+  local slug="$1" name="$2"
+  local f="$(state_root "$slug")/$name.yaml"
+  [ -f "$f" ] || { echo "no state for change $name in store $slug" >&2; return 1; }
+  local phase crit prounds gate verify fixes blocked
+  phase="$(state_field "$f" phase)"
+  crit="$(state_field "$f" last_critique_result)"
+  prounds="$(state_field "$f" propose_rounds)"; prounds="${prounds:-0}"
+  gate="$(state_field "$f" last_gate_result)"
+  verify="$(state_field "$f" last_verify_result)"
+  fixes="$(state_field "$f" fix_attempts)"; fixes="${fixes:-0}"
+  blocked="$(state_field "$f" blocked_on)"
+
+  emit() { # emit action tier model reason [set_phase]
+    printf 'action: %s\ntier: %s\nmodel: %s\n' "$1" "$2" "$3"
+    [ -n "${5:-}" ] && printf 'set_phase: %s\n' "$5"
+    printf 'reason: %s\n' "$4"
+  }
+  fix_tier() { # tier for fix round number (1-based)
+    case "$1" in 1) echo standard ;; 2) echo standard ;; *) echo deep ;; esac
+  }
+
+  case "$phase" in
+    blocked)
+      emit wait none - "blocked on $blocked; resumes when it merges (merge trunk in first)" ;;
+    proposed)
+      case "$crit" in
+        "")
+          if [ -z "$(proposer_model "$slug" "$name")" ]; then
+            emit propose deep "$(model_for_tier "$slug" deep)" "no draft yet: Propose always runs at deep"
+          else
+            emit critique standard "$(critic_model "$slug" "$name")" "draft exists, not yet critiqued: distinct-model critic"
+          fi ;;
+        clean|warnings:*)
+          emit apply standard "$(model_for_tier "$slug" standard)" "critique passed ($crit); warnings swept at mechanical in place" applying ;;
+        blocking:*)
+          if [ "$prounds" -ge "$PROPOSE_CAP" ]; then
+            emit gate1 none - "critique still blocking after $prounds/$PROPOSE_CAP rounds: human clarifies the request"
+          else
+            emit revise deep "$(model_for_tier "$slug" deep)" "critique $crit, round $((prounds + 1))/$PROPOSE_CAP: proposer revises only the named findings, then critique reruns"
+          fi ;;
+        request)
+          emit gate1 none - "critique says the request itself is contradictory or ambiguous" ;;
+        *) echo "unknown last_critique_result '$crit'" >&2; return 1 ;;
+      esac ;;
+    applying)
+      emit apply standard "$(model_for_tier "$slug" standard)" "implement dispatch groups; quick gate + commit per wave; then record phase checking" checking ;;
+    checking)
+      case "$gate" in
+        "")
+          emit check none - "run the full gate; record last_gate_result green|red" ;;
+        red)
+          if [ "$fixes" -ge "$FIX_CAP" ]; then
+            emit gate1 none - "full gate red after $fixes/$FIX_CAP fix rounds"
+          else
+            local n=$((fixes + 1)); local t; t="$(fix_tier "$n")"
+            emit fix "$t" "$(model_for_tier "$slug" "$t")" "gate red, fix round $n/$FIX_CAP (round 1 may drop to mechanical by triage); then clear last_gate_result and recheck"
+          fi ;;
+        green)
+          case "$verify" in
+            "")
+              emit verify standard "$(verify_model "$slug" "$name")" "gate green, not yet verified: distinct-model checker" ;;
+            clean)
+              emit archive none - "verified clean" verified ;;
+            warnings:*)
+              emit sweep mechanical "$(model_for_tier "$slug" mechanical)" "verify $verify: one mechanical sweep + quick gate, no re-verify, not a round; then set last_verify_result clean" ;;
+            blocking:*)
+              if [ "$fixes" -ge "$FIX_CAP" ]; then
+                emit gate1 none - "verify still blocking after $fixes/$FIX_CAP fix rounds"
+              else
+                local n=$((fixes + 1)); local t; t="$(fix_tier "$n")"
+                emit fix "$t" "$(model_for_tier "$slug" "$t")" "verify $verify, fix round $n/$FIX_CAP: fix only the named findings, then clear last_gate_result and last_verify_result and recheck"
+              fi ;;
+            spec)
+              emit gate1 none - "verify says the proposal itself is wrong: human owns the spec" ;;
+            *) echo "unknown last_verify_result '$verify'" >&2; return 1 ;;
+          esac ;;
+        *) echo "unknown last_gate_result '$gate' (expected green|red)" >&2; return 1 ;;
+      esac ;;
+    verified)
+      emit archive none - "finalize artifacts and commit on the branch" archived ;;
+    archived)
+      emit merge-lane none - "merge trunk in under the merge lock and rerun the full gate; green -> ready-to-merge, red -> phase checking with last_gate_result red" ready-to-merge ;;
+    ready-to-merge)
+      emit gate2 none - "ask the human with diffstat, gate log, verify report; on approval squash-merge, record initiative merged, remove workspace, release slot" merged ;;
+    merged)
+      emit done none - "nothing left for this change" ;;
+    *) echo "unknown phase '$phase'" >&2; return 1 ;;
+  esac
+}

@@ -251,10 +251,38 @@ mid-run finding, not a silent merge: fall back to sequential for the
 groups/children involved and fix it with `state set ... seams "..."`, the
 same command that wrote it.
 
+## Driving the loop: `next` decides, the agent does
+
+The lifecycle above is long. Do not hold it in your head and re-derive
+the next step each turn; ask the engine:
+
+```
+scripts/run-change next --store <slug> --name <change>
+```
+
+prints one step — `action`, `tier`, resolved `model`, the `set_phase` to
+record when the step completes, and the `reason` (which rule fired) — from
+the change's state file and session log alone. Actions: `propose`,
+`critique`, `revise`, `apply`, `check`, `fix`, `verify`, `sweep`,
+`archive`, `merge-lane`, `gate1`, `gate2`, `wait`, `done`. The caps
+(`FIX_CAP`, `PROPOSE_CAP`), the fix-round tier ladder, the pass line, and
+the distinct-model checker rules all live in `next_action`
+(`scripts/lib.sh`), so the orchestration is deterministic code and the
+agent's job is the step itself: dispatch the worker `next` names, then
+record what happened (`state set ... last_gate_result green|red`,
+`last_verify_result ...`, `fix_attempts`, `propose_rounds`, `phase`) and
+ask `next` again. `last_gate_result` is `green` or `red`; nothing else.
+
+`next` is read-only and never dispatches — the orchestrator still owns
+gates and workers. What it removes is the decision. If the prose in this
+document and `next_action` ever disagree, fix the prose: `next_action` is
+what runs, and `tests/run.sh` walks a change through every branch of it.
+
 ## Resumability
 
 `scripts/run-change status --store <slug>` discovers state from
-`<store>/.orchestration/`, not chat memory. Commit on the branch after every
+`<store>/.orchestration/`, not chat memory, and `next` resumes any change
+from its recorded fields. Commit on the branch after every
 phase, so an interrupted run loses at most one phase. Re-running with no
 arguments resumes each in-flight change from its recorded phase, checking
 for uncommitted work first.

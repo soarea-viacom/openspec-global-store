@@ -163,6 +163,56 @@ $RC initiative merged --store teststore --name init-a --child feat-a --commit aa
 check_out "initiative merged upserts and keeps order" "merged: feat-a=aaa0000,feat-new=def5678" $RC initiative get --store teststore --name init-a
 check_out "status shows merged child with sha" "aaa0000" $RC status --store teststore
 
+# next: the orchestration policy as code — walk a change through the lifecycle
+N="$RC next --store teststore --name feat-next"
+$RC state init --store teststore --name feat-next
+check_out "next: fresh change -> propose at deep" "action: propose" $N
+check_out "next: propose model is deep" "model: claude-opus-5-custom" $N
+$RC session append --store teststore --name feat-next role worker phase proposed tier deep model claude-opus-5-custom transcript_id p1
+check_out "next: draft exists -> critique" "action: critique" $N
+$RC state set --store teststore --name feat-next last_critique_result blocking:2
+check_out "next: blocking critique -> revise round 1" "action: revise" $N
+$RC state set --store teststore --name feat-next propose_rounds 2
+check_out "next: blocking critique at cap -> gate1" "action: gate1" $N
+$RC state set --store teststore --name feat-next last_critique_result request propose_rounds 0
+check_out "next: request finding -> gate1" "action: gate1" $N
+$RC state set --store teststore --name feat-next last_critique_result warnings:1
+check_out "next: critique passed -> apply" "action: apply" $N
+check_out "next: apply sets phase applying" "set_phase: applying" $N
+$RC state set --store teststore --name feat-next phase applying
+check_out "next: applying -> apply then checking" "set_phase: checking" $N
+$RC state set --store teststore --name feat-next phase checking
+check_out "next: checking with no gate result -> check" "action: check" $N
+$RC state set --store teststore --name feat-next last_gate_result red
+check_out "next: red gate -> fix round 1" "action: fix" $N
+check_out "next: fix round 1 is standard" "tier: standard" $N
+$RC state set --store teststore --name feat-next fix_attempts 2
+check_out "next: fix round 3 is deep" "tier: deep" $N
+$RC state set --store teststore --name feat-next fix_attempts 3
+check_out "next: red gate out of rounds -> gate1" "action: gate1" $N
+$RC state set --store teststore --name feat-next last_gate_result green fix_attempts 0
+check_out "next: green gate unverified -> verify" "action: verify" $N
+$RC session append --store teststore --name feat-next role worker phase applying tier standard model claude-sonnet-5 transcript_id a1
+check_out "next: verify model differs from implementer" "model: claude-opus-5-custom" $N
+$RC state set --store teststore --name feat-next last_verify_result blocking:1
+check_out "next: blocking verify -> fix round" "action: fix" $N
+$RC state set --store teststore --name feat-next last_verify_result warnings:3
+check_out "next: warnings only -> mechanical sweep" "action: sweep" $N
+$RC state set --store teststore --name feat-next last_verify_result spec
+check_out "next: spec finding -> gate1" "action: gate1" $N
+$RC state set --store teststore --name feat-next last_verify_result clean
+check_out "next: verified clean -> archive" "action: archive" $N
+$RC state set --store teststore --name feat-next phase archived
+check_out "next: archived -> merge-lane" "action: merge-lane" $N
+$RC state set --store teststore --name feat-next phase ready-to-merge
+check_out "next: ready-to-merge -> gate2" "action: gate2" $N
+$RC state set --store teststore --name feat-next phase merged
+check_out "next: merged -> done" "action: done" $N
+$RC state set --store teststore --name feat-next phase blocked blocked_on feat-dep
+check_out "next: blocked -> wait" "blocked on feat-dep" $N
+$RC state set --store teststore --name feat-next phase checking last_gate_result purple
+check_out "next: unknown gate result errors" "unknown last_gate_result" bash -c "$N 2>&1; true"
+
 # single rule: a project containing openspec/ is refused outright
 mkdir "$PROJECT/openspec"
 check_out "slot acquire refuses project with openspec/" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"

@@ -28,6 +28,7 @@ usage: run-change <command> [args]
   advisor request --store <slug> --name <change> --worker <transcript-id>
   session list   --store <slug> --name <change>
   status         --store <slug>
+  next           --store <slug> --name <change>
 EOF
   exit 1
 }
@@ -309,6 +310,12 @@ cmd_initiative_merged() {
   state_write "$f" merged "$out"
 }
 
+cmd_next() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  next_action "$STORE" "$NAME"
+}
+
 cmd_status() {
   parse_opts "$@"
   [ -n "$STORE" ] || usage
@@ -362,6 +369,7 @@ cmd_status() {
 
 [ $# -ge 1 ] || usage
 if [ "$1" = "status" ]; then shift; cmd_status "$@"; exit $?; fi
+if [ "$1" = "next" ]; then shift; cmd_next "$@"; exit $?; fi
 group="$1"; sub="${2:-}"; shift 2 2>/dev/null || shift $#
 case "$group $sub" in
   "slot acquire") cmd_slot_acquire "$@" ;;

@@ -212,15 +212,30 @@ Pick a tier per task, not per session:
 - `deep`: decomposing a request into an initiative, design docs, anything
   touching an invariant, fix rounds 2 and 3.
 
+Each tier maps to a concrete model, resolved via `scripts/run-change model
+get --store <slug> --tier <tier>` — the store's `openspec/config.yaml`
+(`orchestration.model_mechanical` / `model_standard` / `model_deep`) if
+set, else the engine's default table (`model_for_tier` in
+`scripts/lib.sh`):
+
+| tier         | default model               |
+|--------------|------------------------------|
+| `mechanical` | `claude-haiku-4-5-20251001` |
+| `standard`   | `claude-sonnet-5`           |
+| `deep`       | `claude-opus-5`             |
+
+`none` runs no model — it's plain bash bookkeeping (`scripts/run-change`
+itself), never a task dispatched to an agent.
+
 Pick the smallest tier that can be wrong safely. Fix-loop escalates
 mechanical/standard → standard → deep → Gate 1. A worker that fails its own
 check once retries one tier up before it counts as a fix round. Record
-`model` and `tier` on every session-history entry — `scripts/run-change
-session append --store <slug> --name <change> role worker phase applying
-tier mechanical model <model-id> transcript_id <id>` — so `session list`
-gives the full history and `status` surfaces each change's most recent
-tier in a `LAST_TIER` column, to catch when a change burned expensive
-calls on mechanical work.
+`model` and `tier` on every session-history entry — resolve the model with
+`model get` first, then `scripts/run-change session append --store <slug>
+--name <change> role worker phase applying tier mechanical model
+<model-id> transcript_id <id>` — so `session list` gives the full history
+and `status` surfaces each change's most recent tier in a `LAST_TIER`
+column, to catch when a change burned expensive calls on mechanical work.
 
 ## Hard rule: written for agents
 

@@ -17,6 +17,7 @@ usage: run-change <command> [args]
   workspace create --store <slug> --project <path> --name <change>
   workspace remove  --store <slug> --project <path> --name <change>
   gate run       --store <slug> --project <path> --mode quick|full
+  model get      --store <slug> --tier mechanical|standard|deep
   merge-lane run --store <slug> --project <path> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
   session append --store <slug> --name <change> key value [key value ...]
@@ -27,8 +28,8 @@ EOF
 }
 
 parse_opts() {
-  # Fills STORE, PROJECT, NAME, MODE, SLOT from remaining args.
-  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""
+  # Fills STORE, PROJECT, NAME, MODE, SLOT, TIER from remaining args.
+  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --store) STORE="$2"; shift 2 ;;
@@ -36,6 +37,7 @@ parse_opts() {
       --name) NAME="$2"; shift 2 ;;
       --mode) MODE="$2"; shift 2 ;;
       --slot) SLOT="$2"; shift 2 ;;
+      --tier) TIER="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -93,6 +95,12 @@ cmd_gate_run() {
   local gcmd; gcmd="$(gate_command "$STORE" "$MODE")"
   [ -n "$gcmd" ] || { echo "no orchestration.gate_${MODE} configured in $(store_config "$STORE")" >&2; return 1; }
   ( cd "$PROJECT" && eval "$gcmd" )
+}
+
+cmd_model_get() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$TIER" ] || usage
+  model_for_tier "$STORE" "$TIER"
 }
 
 cmd_merge_lane_run() {
@@ -213,6 +221,7 @@ case "$group $sub" in
   "workspace create") cmd_workspace_create "$@" ;;
   "workspace remove") cmd_workspace_remove "$@" ;;
   "gate run") cmd_gate_run "$@" ;;
+  "model get") cmd_model_get "$@" ;;
   "merge-lane run") cmd_merge_lane_run "$@" ;;
   "state init") cmd_state_init "$@" ;;
   "state get") cmd_state_get "$@" ;;

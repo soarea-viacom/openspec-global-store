@@ -98,6 +98,14 @@ check "branch removed" bash -c "! git -C '$PROJECT' rev-parse --verify -q change
 check_out "quick gate runs configured command" "QUICK-OK" $RC gate run --store teststore --project "$PROJECT" --mode quick
 check_out "full gate runs configured command" "FULL-OK" $RC gate run --store teststore --project "$PROJECT" --mode full
 
+# tier -> model
+check_out "model get falls back to default for mechanical" "claude-haiku-4-5-20251001" $RC model get --store teststore --tier mechanical
+check_out "model get falls back to default for deep" "claude-opus-5" $RC model get --store teststore --tier deep
+cat >> "$STORE/openspec/config.yaml" <<'EOF'
+  model_deep: "claude-opus-5-custom"
+EOF
+check_out "model get honors store override" "claude-opus-5-custom" $RC model get --store teststore --tier deep
+
 # single rule: a project containing openspec/ is refused outright
 mkdir "$PROJECT/openspec"
 check_out "slot acquire refuses project with openspec/" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"

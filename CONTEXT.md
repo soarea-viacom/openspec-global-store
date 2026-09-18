@@ -24,6 +24,13 @@
   upserted in place); the session log holds *every* run's record (`role`,
   `phase`, `gates_hit`, `transcript_id`, `model`, `tier`), appended, never
   rewritten.
+- **Tier→model table**: the mapping from an effort tier (`mechanical`,
+  `standard`, `deep` — the `none` tier runs no model) to a concrete model
+  id, read via `scripts/run-change model get --store <slug> --tier
+  <tier>`. Resolved from the store's `openspec/config.yaml`
+  (`orchestration.model_<tier>`) if set, else the default table in
+  `model_for_tier` (`scripts/lib.sh`) — the only place a specific model id
+  is hardcoded in the engine.
 - **Gate**: the project's quick or full check command
   (`orchestration.gate_quick` / `gate_full` in the *store's*
   `openspec/config.yaml` — single rule: a target project must not contain

@@ -65,6 +65,35 @@ gate_command() {
   ' "$cfg" 2>/dev/null || true
 }
 
+# model_for_tier <store-slug> <tier> -> model id for mechanical|standard|deep
+# (the `none` tier runs no model — it's plain bash bookkeeping). Reads
+# orchestration.model_<tier> from the store's config first; falls back to
+# the default table below when unset. The default table is the only place
+# in the engine that names a specific model id — update it here, not
+# per-callsite, when the current-best model changes.
+model_for_tier() {
+  local slug="$1" tier="$2"
+  local cfg
+  cfg="$(store_config "$slug")"
+  local key="model_${tier}"
+  local v
+  v="$(awk -v key="$key" '
+    /^orchestration:/ { f=1; next }
+    f && /^[a-zA-Z]/ { exit }
+    f && index($0, key":") { sub(".*"key":[ ]*", ""); gsub(/^"|"$/, ""); print; exit }
+  ' "$cfg" 2>/dev/null || true)"
+  if [ -n "$v" ]; then
+    echo "$v"
+    return 0
+  fi
+  case "$tier" in
+    mechanical) echo "claude-haiku-4-5-20251001" ;;
+    standard)   echo "claude-sonnet-5" ;;
+    deep)       echo "claude-opus-5" ;;
+    *)          echo "unknown tier: $tier" >&2; return 1 ;;
+  esac
+}
+
 timestamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # State module: sole owner of the state-file YAML dialect (flat "key: value",

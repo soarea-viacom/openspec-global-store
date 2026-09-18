@@ -4,7 +4,10 @@
   for one target project, resolved by slug via the CLI registry
   (`OPENSPEC_STORE_REGISTRY`).
 - **Change**: the unit of branch, workspace, gate and merge
-  (`change/<name>` branch + worktree in the target project).
+  (`change/<name>` branch in the target project's repo, worktree checked
+  out at `<store>/.orchestration/workspaces/<name>` — `workspace_path` in
+  `scripts/lib.sh` is the only place that path is built). Gates run in the
+  worktree, never the project's main checkout.
 - **State module**: `scripts/lib.sh` (`state_root`, `state_field`,
   `state_write`) — sole owner of the state-file YAML dialect under
   `<store>/.orchestration/state/`. Nothing else parses those files.

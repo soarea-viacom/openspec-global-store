@@ -23,8 +23,8 @@ EOF
 cat > "$STORE/openspec/config.yaml" <<'EOF'
 orchestration:
   concurrency: 2
-  gate_quick: "echo QUICK-OK"
-  gate_full: "echo FULL-OK"
+  gate_quick: "echo QUICK-OK in $PWD"
+  gate_full: "echo FULL-OK in $PWD"
 EOF
 
 git init -q --bare -b main "$TMP/origin"
@@ -90,13 +90,21 @@ $RC slot release --store teststore --slot "$s2"
 wt="$($RC workspace create --store teststore --project "$PROJECT" --name feat-a)"
 check "workspace worktree exists" git -C "$wt" rev-parse --is-inside-work-tree
 check "workspace branch exists" git -C "$PROJECT" rev-parse --verify change/feat-a
+check "workspace lives under the store, not the project" test "$wt" = "$STORE/.orchestration/workspaces/feat-a"
+check "project checkout has no untracked workspace dir" bash -c "[ -z \"\$(git -C '$PROJECT' status --porcelain)\" ]"
+check_out "store ignores its workspaces dir" ".orchestration/workspaces/" cat "$STORE/.gitignore"
+$RC workspace create --store teststore --project "$PROJECT" --name feat-dup >/dev/null 2>&1
+check "gitignore entry not duplicated" test "$(grep -c '.orchestration/workspaces/' "$STORE/.gitignore")" = 1
+$RC workspace remove --store teststore --project "$PROJECT" --name feat-dup
+# gate runs in the change's worktree, never the project's main checkout
+check_out "quick gate runs in the worktree" "QUICK-OK in $wt" $RC gate run --store teststore --project "$PROJECT" --name feat-a --mode quick
+check_out "full gate runs in the worktree" "FULL-OK in $wt" $RC gate run --store teststore --project "$PROJECT" --name feat-a --mode full
+check_out "gate run without a workspace errors" "no workspace for change" bash -c "$RC gate run --store teststore --project '$PROJECT' --name feat-none --mode quick 2>&1; true"
 $RC workspace remove --store teststore --project "$PROJECT" --name feat-a
 check "workspace removed" test ! -e "$wt"
 check "branch removed" bash -c "! git -C '$PROJECT' rev-parse --verify -q change/feat-a"
 
 # gates (config read from the store, project has no openspec/)
-check_out "quick gate runs configured command" "QUICK-OK" $RC gate run --store teststore --project "$PROJECT" --mode quick
-check_out "full gate runs configured command" "FULL-OK" $RC gate run --store teststore --project "$PROJECT" --mode full
 
 # tier -> model
 check_out "model get falls back to default for mechanical" "claude-haiku-4-5-20251001" $RC model get --store teststore --tier mechanical
@@ -149,13 +157,13 @@ check_out "status shows merged child with sha" "aaa0000" $RC status --store test
 mkdir "$PROJECT/openspec"
 check_out "slot acquire refuses project with openspec/" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"
 check_out "workspace create refuses project with openspec/" "refusing" bash -c "$RC workspace create --store teststore --project '$PROJECT' --name feat-x 2>&1; true"
-check_out "gate run refuses project with openspec/" "refusing" bash -c "$RC gate run --store teststore --project '$PROJECT' --mode quick 2>&1; true"
+check_out "gate run refuses project with openspec/" "refusing" bash -c "$RC gate run --store teststore --project '$PROJECT' --name feat-x --mode quick 2>&1; true"
 check_out "merge lane refuses project with openspec/" "refusing" bash -c "$RC merge-lane run --store teststore --project '$PROJECT' --name feat-x 2>&1; true"
 rmdir "$PROJECT/openspec"
 
 # merge lane: merges origin trunk into the change branch, reruns full gate, releases lock
 $RC workspace create --store teststore --project "$PROJECT" --name feat-a >/dev/null 2>&1
-check_out "merge lane merges trunk and runs full gate" "FULL-OK" $RC merge-lane run --store teststore --project "$PROJECT" --name feat-a
+check_out "merge lane merges trunk and runs full gate in the worktree" "FULL-OK in $STORE/.orchestration/workspaces/feat-a" $RC merge-lane run --store teststore --project "$PROJECT" --name feat-a
 check "merge lock released" test ! -d "$STORE/.orchestration/merge.lock"
 $RC workspace remove --store teststore --project "$PROJECT" --name feat-a
 

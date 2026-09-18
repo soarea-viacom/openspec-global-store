@@ -16,7 +16,7 @@ usage: run-change <command> [args]
   slot release   --store <slug> --slot <id>
   workspace create --store <slug> --project <path> --name <change>
   workspace remove  --store <slug> --project <path> --name <change>
-  gate run       --store <slug> --project <path> --mode quick|full
+  gate run       --store <slug> --project <path> --name <change> --mode quick|full
   model get      --store <slug> --tier mechanical|standard|deep
   model verify   --store <slug> --name <change>
   model critic   --store <slug> --name <change>
@@ -79,9 +79,9 @@ cmd_workspace_create() {
   [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
   require_no_project_openspec "$PROJECT"
   local branch="change/$NAME"
-  local wt_root="$PROJECT/.orchestration-workspaces"
-  mkdir -p "$wt_root"
-  local wt_path="$wt_root/$NAME"
+  local wt_path; wt_path="$(workspace_path "$STORE" "$NAME")"
+  mkdir -p "$(dirname "$wt_path")"
+  ensure_workspace_ignored "$STORE"
   git -C "$PROJECT" worktree add -b "$branch" "$wt_path" >&2
   echo "$wt_path"
 }
@@ -89,18 +89,23 @@ cmd_workspace_create() {
 cmd_workspace_remove() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
-  local wt_path="$PROJECT/.orchestration-workspaces/$NAME"
+  local wt_path; wt_path="$(workspace_path "$STORE" "$NAME")"
   git -C "$PROJECT" worktree remove "$wt_path" --force 2>/dev/null || true
   git -C "$PROJECT" branch -D "change/$NAME" 2>/dev/null || true
 }
 
+# The gate runs in the change's worktree — the tree that actually holds the
+# branch's code. The project's main checkout is trunk and would pass or fail
+# for reasons unrelated to the change.
 cmd_gate_run() {
   parse_opts "$@"
-  [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$MODE" ] || usage
+  [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] && [ -n "$MODE" ] || usage
   require_no_project_openspec "$PROJECT"
   local gcmd; gcmd="$(gate_command "$STORE" "$MODE")"
   [ -n "$gcmd" ] || { echo "no orchestration.gate_${MODE} configured in $(store_config "$STORE")" >&2; return 1; }
-  ( cd "$PROJECT" && eval "$gcmd" )
+  local wt; wt="$(workspace_path "$STORE" "$NAME")"
+  [ -d "$wt" ] || { echo "no workspace for change $NAME (expected $wt) — run workspace create first" >&2; return 1; }
+  ( cd "$wt" && eval "$gcmd" )
 }
 
 cmd_model_get() {
@@ -141,8 +146,8 @@ cmd_merge_lane_run() {
   # whenever origin/HEAD is unset (e.g. remote added without a fetch).
   trunk="$(git -C "$PROJECT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##' || true)"
   [ -n "$trunk" ] || trunk="main"
-  git -C "$PROJECT" -C ".orchestration-workspaces/$NAME" merge "origin/$trunk" --no-edit
-  cmd_gate_run --store "$STORE" --project "$PROJECT" --mode full
+  git -C "$(workspace_path "$STORE" "$NAME")" merge "origin/$trunk" --no-edit
+  cmd_gate_run --store "$STORE" --project "$PROJECT" --name "$NAME" --mode full
 }
 
 cmd_state_init() {

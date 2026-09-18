@@ -103,6 +103,22 @@ state_root() {
   echo "$(orchestration_dir "$1")/state"
 }
 
+# workspace_path <store-slug> <change-name> — where a change's worktree is
+# checked out. Under the store, not the project: the project's repo owns
+# the branch and history (git records the worktree in its .git/worktrees),
+# but its main checkout must never see orchestration files. The store is a
+# git repo too, so ensure_workspace_ignored keeps the checkout out of it.
+workspace_path() {
+  echo "$(orchestration_dir "$1")/workspaces/$2"
+}
+
+ensure_workspace_ignored() {
+  local store; store="$(store_path "$1")"
+  local ignore="$store/.gitignore"
+  grep -qxF '.orchestration/workspaces/' "$ignore" 2>/dev/null && return 0
+  echo '.orchestration/workspaces/' >> "$ignore"
+}
+
 # initiative_root <store-slug> — initiative records share the state-file YAML
 # dialect (state_field/state_write) but live apart from change state so
 # `status` never mistakes one for a change.

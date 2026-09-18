@@ -21,8 +21,11 @@ target project the `openspec-orchestrator` skill routes to.
 A "change" always has two locations, never one:
 
 - **Code and git history** live in the **target project's own repo** — the
-  isolated workspace (branch `change/<name>` + worktree) is created there,
-  never in this store.
+  branch `change/<name>` and every commit on it belong to that repo. Its
+  worktree is *checked out* under the store
+  (`<store>/.orchestration/workspaces/<name>`, ignored by the store's git)
+  so the project's main checkout never shows orchestration files; git
+  still records the worktree in the project's `.git/worktrees`.
 - **Spec artifacts and orchestration state** live in that project's
   **store** — the directory the `openspec-orchestrator` skill resolved via
   `--store <slug>` (slug recomputed from `git remote get-url origin`, kebab-
@@ -69,8 +72,11 @@ append`, never edited after the fact.
    waiting — a dependency can never deadlock the cap.
 2. **Workspace** — `scripts/run-change workspace create --store <slug>
    --project <path> --name <name>`: branch `change/<name>` off the project's trunk,
-   worktree at a workspace root under the project, dependencies synced.
-   Never dispatch work against the project's main checkout.
+   worktree checked out under the store's `.orchestration/workspaces/`,
+   dependencies synced. Never dispatch work against the project's main
+   checkout — and every gate (`gate run ... --name <name>`) runs in the
+   worktree, never in the main checkout, which is trunk and says nothing
+   about the branch.
 3. **Propose** — always runs at the `deep` tier (see Model/effort routing
    below), regardless of how small the change looks: a mistake here is the
    most expensive one, because every later phase inherits it. Draft the

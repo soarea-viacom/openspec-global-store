@@ -126,6 +126,18 @@ check_out "model critic uses standard when distinct from proposer" "claude-opus-
 $RC session append --store teststore --name feat-critic role worker phase applying tier standard model claude-opus-5-custom transcript_id t3
 check_out "model critic ignores non-proposed entries" "claude-opus-5-custom" $RC model critic --store teststore --name feat-critic
 
+# initiatives: own record, own critique-round counter, shown as a tree in status
+check "initiative init creates file" $RC initiative init --store teststore --name init-a
+check_out "initiative get has critique_rounds" "critique_rounds: 0" $RC initiative get --store teststore --name init-a
+$RC initiative set --store teststore --name init-a children feat-a,feat-new critique_rounds 1 last_critique_result blocking:2
+check_out "initiative set upserts rounds" "critique_rounds: 1" $RC initiative get --store teststore --name init-a
+check "initiative is not a change state file" bash -c "! test -f '$STORE/.orchestration/state/init-a.yaml'"
+check_out "status shows initiative tree" "init-a" $RC status --store teststore
+check_out "status shows started child phase" "feat-a" $RC status --store teststore
+check_out "status shows unstarted child" "not-started" $RC status --store teststore
+$RC session append --store teststore --name init-a role worker phase proposed tier deep model claude-opus-5-custom transcript_id t9
+check_out "model critic works for an initiative name" "no model distinct from proposer" bash -c "$RC model critic --store teststore --name init-a 2>&1; true"
+
 # single rule: a project containing openspec/ is refused outright
 mkdir "$PROJECT/openspec"
 check_out "slot acquire refuses project with openspec/" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"

@@ -103,6 +103,13 @@ state_root() {
   echo "$(orchestration_dir "$1")/state"
 }
 
+# initiative_root <store-slug> — initiative records share the state-file YAML
+# dialect (state_field/state_write) but live apart from change state so
+# `status` never mistakes one for a change.
+initiative_root() {
+  echo "$(orchestration_dir "$1")/initiatives"
+}
+
 # state_field <file> <key> -> value with surrounding quotes stripped, empty if absent.
 state_field() {
   awk -v k="$2" '

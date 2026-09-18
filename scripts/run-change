@@ -22,6 +22,7 @@ usage: run-change <command> [args]
   model critic   --store <slug> --name <change>
   merge-lane run --store <slug> --project <path> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
+  initiative init|get|set --store <slug> --name <initiative> [key value ...]
   session append --store <slug> --name <change> key value [key value ...]
   session list   --store <slug> --name <change>
   status         --store <slug>
@@ -204,6 +205,43 @@ cmd_session_list() {
   [ -f "$f" ] && cat "$f" || true
 }
 
+cmd_initiative_init() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  local root; root="$(initiative_root "$STORE")"
+  mkdir -p "$root"
+  local f="$root/$NAME.yaml"
+  [ -f "$f" ] && return 0
+  cat > "$f" <<EOF
+name: $NAME
+title: ""
+request: ""
+children: []
+critique_rounds: 0
+last_critique_result: ""
+created_at: "$(timestamp)"
+updated_at: "$(timestamp)"
+EOF
+}
+
+cmd_initiative_get() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  cat "$(initiative_root "$STORE")/$NAME.yaml"
+}
+
+cmd_initiative_set() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  local f="$(initiative_root "$STORE")/$NAME.yaml"
+  [ -f "$f" ] || cmd_initiative_init --store "$STORE" --name "$NAME"
+  local args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in --store|--project|--name|--mode|--slot) shift 2 ;; *) args+=("$1"); shift ;; esac
+  done
+  state_write "$f" ${args[@]+"${args[@]}"}
+}
+
 cmd_status() {
   parse_opts "$@"
   [ -n "$STORE" ] || usage
@@ -226,6 +264,27 @@ cmd_status() {
       "$(state_field "$f" blocked_on)" \
       "${last_tier:--}"
   done
+  local iroot; iroot="$(initiative_root "$STORE")"
+  [ -d "$iroot" ] && [ -n "$(ls -A "$iroot" 2>/dev/null)" ] || return 0
+  echo
+  printf "%-24s %-8s %-14s %s\n" "INITIATIVE" "ROUNDS" "CRITIQUE" "CHILDREN"
+  local child cf
+  for f in "$iroot"/*.yaml; do
+    name="$(state_field "$f" name)"
+    printf "%-24s %-8s %-14s %s\n" "$name" \
+      "$(state_field "$f" critique_rounds)" \
+      "$(state_field "$f" last_critique_result)" \
+      "$(state_field "$f" children)"
+    # children is "a,b,c"; a child without a state file hasn't started.
+    for child in $(state_field "$f" children | tr -d '[]' | tr ',' ' '); do
+      cf="$root/$child.yaml"
+      if [ -f "$cf" ]; then
+        printf "  %-22s %-14s blocked_on=%s\n" "$child" "$(state_field "$cf" phase)" "$(state_field "$cf" blocked_on)"
+      else
+        printf "  %-22s %-14s\n" "$child" "not-started"
+      fi
+    done
+  done
 }
 
 [ $# -ge 1 ] || usage
@@ -244,6 +303,9 @@ case "$group $sub" in
   "state init") cmd_state_init "$@" ;;
   "state get") cmd_state_get "$@" ;;
   "state set") cmd_state_set "$@" ;;
+  "initiative init") cmd_initiative_init "$@" ;;
+  "initiative get") cmd_initiative_get "$@" ;;
+  "initiative set") cmd_initiative_set "$@" ;;
   "session append") cmd_session_append "$@" ;;
   "session list") cmd_session_list "$@" ;;
   *) usage ;;

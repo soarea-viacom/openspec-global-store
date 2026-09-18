@@ -73,6 +73,11 @@
 - **Merge lane**: the serialized merge-trunk-then-full-gate step behind
   `<store>/.orchestration/merge.lock`.
 - **Initiative**: complex work decomposed into dependency-ordered changes.
+  Its record, `<store>/.orchestration/initiatives/<name>.yaml` (`title`,
+  `request`, `children`, `critique_rounds`, `last_critique_result`), is
+  written only via `scripts/run-change initiative init|get|set` and uses
+  the state module's YAML dialect, but lives outside `state/` so `status`
+  never lists it as a change.
 
 The engine's own gate is `tests/run.sh` — black-box through the
 `scripts/run-change` CLI, both seams substituted (temp registry, temp

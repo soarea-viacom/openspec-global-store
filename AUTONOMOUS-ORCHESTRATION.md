@@ -234,9 +234,11 @@ this follows from file ownership, not judgement:
 Split before creating a change when the request touches more than one
 independent area, needs more than ~2 dispatch groups / ~8 tasks, or contains
 parts that could merge independently. Record an initiative
-(`<store>/.orchestration/initiatives/<name>.yaml`: title, originating
-request, ordered children with `depends_on`/`status`/`merged_commit`)
-instead of inferring the split later.
+(`scripts/run-change initiative init|set --store <slug> --name <name>
+title ... request ... children a,b,c` →
+`<store>/.orchestration/initiatives/<name>.yaml`, plus `critique_rounds`
+and `last_critique_result` for its critique loop) instead of inferring the
+split later. Per-child `depends_on` lives on each child's own state file.
 
 - A child starts only when its dependencies are merged, up to the
   concurrency cap, and only after the disjoint-files check below clears it
@@ -244,8 +246,9 @@ instead of inferring the split later.
 - Gate 2 is per child by default. The first Gate 2 of an initiative may
   offer "approve this merge and let remaining green children merge
   autonomously." Gate 1 always asks.
-- `scripts/run-change status` shows the initiative tree with per-child
-  phase and blocker.
+- `scripts/run-change status` shows the initiative tree — critique rounds
+  and result, then each child with its phase and blocker, or
+  `not-started` if it has no state file yet.
 - **Gates are orchestrator-owned.** Whether a child runs as a separate
   resumed session or as a subagent dispatched live by one orchestrator
   session, only the orchestrator talks to the human. A child that hits a
@@ -307,7 +310,11 @@ the others:
   author's session entry under the initiative's name (`session append
   --name <initiative> phase proposed`), so `model critic --name
   <initiative>` resolves a distinct model without new machinery. Rounds
-  are counted in the report header; an initiative has no state file.
+  and the last result live on the initiative record (`scripts/run-change
+  initiative set --store <slug> --name <initiative> critique_rounds <n>
+  last_critique_result <value>`), cap 2, same values as a change's
+  critique. The report goes to
+  `<store>/.orchestration/initiatives/<name>.critique.md`.
 - **Design docs** written at the deep tier during Propose. Same critic,
   logged under the owning change, standards: fidelity to the request,
   every decision names the alternative it rejected and why, nothing the

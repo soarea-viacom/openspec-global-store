@@ -86,7 +86,11 @@
   prior report marked closed reappears and the blocking count strictly
   falls. A round that fails it gates to the human immediately, ignoring
   remaining budget. Applies to fix rounds and critique rounds alike (see
-  **Checker loops** in AUTONOMOUS-ORCHESTRATION.md).
+  **Checker loops** in AUTONOMOUS-ORCHESTRATION.md). The count half is
+  enforced by `next` from `prev_verify_result` / `prev_critique_result`,
+  which `state set` shifts automatically whenever a real result is
+  overwritten (including by the clear before a recheck); the
+  reopened-finding half remains the checker's judgement.
 - **Pass line**: Verify passes on full gate green plus zero `blocking`
   findings; critique passes on zero `blocking` findings. `warning`
   findings get one mechanical sweep and never start a round.

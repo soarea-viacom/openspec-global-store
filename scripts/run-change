@@ -165,9 +165,11 @@ name: $NAME
 phase: proposed
 propose_rounds: 0
 last_critique_result: ""
+prev_critique_result: ""
 fix_attempts: 0
 last_gate_result: ""
 last_verify_result: ""
+prev_verify_result: ""
 initiative: ""
 depends_on: []
 seams: []
@@ -194,6 +196,20 @@ cmd_state_set() {
   local args=()
   while [ $# -gt 0 ]; do
     case "$1" in --store|--project|--name|--mode|--slot|--child|--commit|--worker) shift 2 ;; *) args+=("$1"); shift ;; esac
+  done
+  # Convergence needs the previous checker result. Whenever a real
+  # last_*_result is about to be overwritten — by a new result or by the
+  # "" the orchestrator writes before a recheck — shift it into
+  # prev_*_result here, mechanically, so the orchestrator can't forget.
+  # Overwriting an empty value shifts nothing, so the round the next report
+  # is compared against survives the clear.
+  local i key cur
+  for i in "${!args[@]}"; do
+    [ $((i % 2)) -eq 0 ] || continue
+    key="${args[$i]}"
+    case "$key" in last_verify_result|last_critique_result) ;; *) continue ;; esac
+    cur="$(state_field "$f" "$key")"
+    [ -n "$cur" ] && state_write "$f" "prev_${key#last_}" "$cur"
   done
   state_write "$f" ${args[@]+"${args[@]}"}
 }

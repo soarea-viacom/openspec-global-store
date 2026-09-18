@@ -55,8 +55,13 @@ proposed → applying → checking → verified → archived → ready-to-merge 
 
 plus `blocked` (see bug triage below). State lives in
 `<store>/.orchestration/state/<change>.yaml`:
-`phase`, `propose_rounds`, `last_critique_result`, `fix_attempts`,
-`last_gate_result`, `last_verify_result`, `initiative`, `depends_on`, `seams`, `follows`, `supersedes`, `blocked_on`.
+`phase`, `propose_rounds`, `last_critique_result`, `prev_critique_result`,
+`fix_attempts`, `last_gate_result`, `last_verify_result`,
+`prev_verify_result`, `initiative`, `depends_on`, `seams`, `follows`,
+`supersedes`, `blocked_on`. The `prev_*` fields are written by `state set`
+itself whenever a real `last_*_result` is overwritten — by a new result or
+by the `""` written before a recheck; overwriting an empty value shifts
+nothing — so the orchestrator never sets them.
 Session history is a separate append-only log, one line per
 orchestrator/worker run against this change, at
 `<store>/.orchestration/state/<change>.sessions.log` (see **Session log**
@@ -371,7 +376,11 @@ each other forever.
   the prior round's. Either failing means the pair is not moving toward
   agreement — gate immediately with both reports, regardless of rounds
   left. Spending the remainder would only produce a third report saying
-  the same thing.
+  the same thing. The count half is mechanical: `next` compares
+  `last_*_result` with `prev_*_result` and returns `gate1` when a
+  `blocking` count fails to fall. The reopened-finding half needs
+  finding ids the reports don't carry, so the checker states it in the
+  report and the orchestrator acts on it.
 - **Unconditional, by design.** The pattern is usually reserved for
   changes worth a senior review. Here it runs on every change, because in
   autonomous mode nobody reads the diff or the spec before Gate 2 — the

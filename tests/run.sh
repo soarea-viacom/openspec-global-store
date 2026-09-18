@@ -172,6 +172,10 @@ $RC session append --store teststore --name feat-next role worker phase proposed
 check_out "next: draft exists -> critique" "action: critique" $N
 $RC state set --store teststore --name feat-next last_critique_result blocking:2
 check_out "next: blocking critique -> revise round 1" "action: revise" $N
+$RC state set --store teststore --name feat-next last_critique_result blocking:2
+check_out "next: critique count unchanged -> gate1 not converging" "critique not converging" $N
+$RC state set --store teststore --name feat-next last_critique_result blocking:1
+check_out "next: critique count fell -> revise" "action: revise" $N
 $RC state set --store teststore --name feat-next propose_rounds 2
 check_out "next: blocking critique at cap -> gate1" "action: gate1" $N
 $RC state set --store teststore --name feat-next last_critique_result request propose_rounds 0
@@ -194,8 +198,18 @@ $RC state set --store teststore --name feat-next last_gate_result green fix_atte
 check_out "next: green gate unverified -> verify" "action: verify" $N
 $RC session append --store teststore --name feat-next role worker phase applying tier standard model claude-sonnet-5 transcript_id a1
 check_out "next: verify model differs from implementer" "model: claude-opus-5-custom" $N
-$RC state set --store teststore --name feat-next last_verify_result blocking:1
+$RC state set --store teststore --name feat-next last_verify_result blocking:3
 check_out "next: blocking verify -> fix round" "action: fix" $N
+check_out "next: first blocking result has no prev" "prev_verify_result: \"\"" $RC state get --store teststore --name feat-next
+$RC state set --store teststore --name feat-next last_verify_result ""
+check_out "next: clearing for recheck shifts last into prev" "prev_verify_result: blocking:3" $RC state get --store teststore --name feat-next
+$RC state set --store teststore --name feat-next last_verify_result blocking:1
+check_out "next: writing over empty keeps prev" "prev_verify_result: blocking:3" $RC state get --store teststore --name feat-next
+check_out "next: falling blocking count converges -> fix" "action: fix" $N
+$RC state set --store teststore --name feat-next last_verify_result blocking:1
+check_out "next: same blocking count -> gate1 not converging" "verify not converging: blocking:1 -> blocking:1" $N
+$RC state set --store teststore --name feat-next last_verify_result blocking:4
+check_out "next: rising blocking count -> gate1" "action: gate1" $N
 $RC state set --store teststore --name feat-next last_verify_result warnings:3
 check_out "next: warnings only -> mechanical sweep" "action: sweep" $N
 $RC state set --store teststore --name feat-next last_verify_result spec

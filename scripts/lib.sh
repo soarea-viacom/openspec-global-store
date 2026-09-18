@@ -263,12 +263,14 @@ next_action() {
   local slug="$1" name="$2"
   local f="$(state_root "$slug")/$name.yaml"
   [ -f "$f" ] || { echo "no state for change $name in store $slug" >&2; return 1; }
-  local phase crit prounds gate verify fixes blocked
+  local phase crit pcrit prounds gate verify pverify fixes blocked
   phase="$(state_field "$f" phase)"
   crit="$(state_field "$f" last_critique_result)"
+  pcrit="$(state_field "$f" prev_critique_result)"
   prounds="$(state_field "$f" propose_rounds)"; prounds="${prounds:-0}"
   gate="$(state_field "$f" last_gate_result)"
   verify="$(state_field "$f" last_verify_result)"
+  pverify="$(state_field "$f" prev_verify_result)"
   fixes="$(state_field "$f" fix_attempts)"; fixes="${fixes:-0}"
   blocked="$(state_field "$f" blocked_on)"
 
@@ -279,6 +281,13 @@ next_action() {
   }
   fix_tier() { # tier for fix round number (1-based)
     case "$1" in 1) echo standard ;; 2) echo standard ;; *) echo deep ;; esac
+  }
+  # not_converging <last> <prev>: both blocking and the count did not fall.
+  # The other half of the convergence test (a closed finding reappearing)
+  # needs finding ids in the reports and stays with the checker's judgement.
+  not_converging() {
+    case "$1:$2" in blocking:*:blocking:*) ;; *) return 1 ;; esac
+    [ "${1#blocking:}" -ge "${2#blocking:}" ]
   }
 
   case "$phase" in
@@ -295,7 +304,9 @@ next_action() {
         clean|warnings:*)
           emit apply standard "$(model_for_tier "$slug" standard)" "critique passed ($crit); warnings swept at mechanical in place" applying ;;
         blocking:*)
-          if [ "$prounds" -ge "$PROPOSE_CAP" ]; then
+          if not_converging "$crit" "$pcrit"; then
+            emit gate1 none - "critique not converging: $pcrit -> $crit, blocking count did not fall; spending remaining rounds would repeat it"
+          elif [ "$prounds" -ge "$PROPOSE_CAP" ]; then
             emit gate1 none - "critique still blocking after $prounds/$PROPOSE_CAP rounds: human clarifies the request"
           else
             emit revise deep "$(model_for_tier "$slug" deep)" "critique $crit, round $((prounds + 1))/$PROPOSE_CAP: proposer revises only the named findings, then critique reruns"
@@ -326,7 +337,9 @@ next_action() {
             warnings:*)
               emit sweep mechanical "$(model_for_tier "$slug" mechanical)" "verify $verify: one mechanical sweep + quick gate, no re-verify, not a round; then set last_verify_result clean" ;;
             blocking:*)
-              if [ "$fixes" -ge "$FIX_CAP" ]; then
+              if not_converging "$verify" "$pverify"; then
+                emit gate1 none - "verify not converging: $pverify -> $verify, blocking count did not fall; spending remaining rounds would repeat it"
+              elif [ "$fixes" -ge "$FIX_CAP" ]; then
                 emit gate1 none - "verify still blocking after $fixes/$FIX_CAP fix rounds"
               else
                 local n=$((fixes + 1)); local t; t="$(fix_tier "$n")"

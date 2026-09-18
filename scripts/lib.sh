@@ -139,7 +139,7 @@ state_write() {
 # Session log: sole owner of the session-history file, one logfmt line per
 # orchestrator/worker run against a change (name=value pairs, space
 # separated, values must not contain spaces). Append-only — a run's entry
-# is never edited after the fact, only added to. Nothing outside these two
+# is never edited after the fact, only added to. Nothing outside these four
 # functions may write or parse a session log.
 session_log_path() {
   echo "$(state_root "$1")/$2.sessions.log"
@@ -155,4 +155,34 @@ session_append() {
     shift 2
   done
   echo "$line" >> "$f"
+}
+
+# implementer_model <store-slug> <change-name> -> the model id of the most
+# recent phase=applying or phase=checking entry (the code that's currently
+# on the branch), empty if the change has no such entry yet.
+implementer_model() {
+  local f; f="$(session_log_path "$1" "$2")"
+  [ -f "$f" ] || return 0
+  grep -E 'phase=(applying|checking)' "$f" 2>/dev/null | tail -n1 \
+    | grep -o 'model=[^ ]*' | cut -d= -f2 || true
+}
+
+# verify_model <store-slug> <change-name> -> a model id guaranteed distinct
+# from implementer_model, for the generator/checker split at the Verify
+# step. Verify's own baseline tier is `standard` (see Model/effort
+# routing); if that resolves to the same model that wrote the code,
+# escalate to `deep` rather than let the same model review its own work.
+# Errors if every tier collapses to one model (a store misconfiguration).
+verify_model() {
+  local slug="$1" name="$2"
+  local impl; impl="$(implementer_model "$slug" "$name")"
+  local candidate; candidate="$(model_for_tier "$slug" standard)"
+  if [ -n "$impl" ] && [ "$candidate" = "$impl" ]; then
+    candidate="$(model_for_tier "$slug" deep)"
+  fi
+  if [ -n "$impl" ] && [ "$candidate" = "$impl" ]; then
+    echo "no model distinct from implementer ($impl) available for verify — check orchestration.model_* in $(store_config "$slug")" >&2
+    return 1
+  fi
+  echo "$candidate"
 }

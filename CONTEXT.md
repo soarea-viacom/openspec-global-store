@@ -31,6 +31,13 @@
   (`orchestration.model_<tier>`) if set, else the default table in
   `model_for_tier` (`scripts/lib.sh`) — the only place a specific model id
   is hardcoded in the engine.
+- **Generator/checker split**: the rule that Verify's model must differ
+  from whichever model most recently implemented the change.
+  `implementer_model` (`scripts/lib.sh`) reads the last `applying`/
+  `checking` entry's `model` from the session log; `verify_model` resolves
+  `standard`'s model and escalates to `deep`'s if that collides, erroring
+  if every tier still resolves to the same id. Exposed as `scripts/
+  run-change model verify --store <slug> --name <change>`.
 - **Gate**: the project's quick or full check command
   (`orchestration.gate_quick` / `gate_full` in the *store's*
   `openspec/config.yaml` — single rule: a target project must not contain

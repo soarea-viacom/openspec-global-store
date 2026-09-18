@@ -106,6 +106,16 @@ cat >> "$STORE/openspec/config.yaml" <<'EOF'
 EOF
 check_out "model get honors store override" "claude-opus-5-custom" $RC model get --store teststore --tier deep
 
+# generator/checker split: verify must use a model distinct from the implementer's
+check_out "model verify with no history uses standard default" "claude-sonnet-5" $RC model verify --store teststore --name feat-verify
+$RC session append --store teststore --name feat-verify role worker phase applying tier standard model claude-sonnet-5 transcript_id t1
+check_out "model verify escalates to deep on collision" "claude-opus-5-custom" $RC model verify --store teststore --name feat-verify
+cat >> "$STORE/openspec/config.yaml" <<'EOF'
+  model_standard: "claude-opus-5-custom"
+EOF
+$RC session append --store teststore --name feat-verify role worker phase applying tier deep model claude-opus-5-custom transcript_id t2
+check_out "model verify errors when every tier collapses" "no model distinct" bash -c "$RC model verify --store teststore --name feat-verify 2>&1; true"
+
 # single rule: a project containing openspec/ is refused outright
 mkdir "$PROJECT/openspec"
 check_out "slot acquire refuses project with openspec/" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"

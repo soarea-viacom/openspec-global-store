@@ -18,6 +18,7 @@ usage: run-change <command> [args]
   workspace remove  --store <slug> --project <path> --name <change>
   gate run       --store <slug> --project <path> --mode quick|full
   model get      --store <slug> --tier mechanical|standard|deep
+  model verify   --store <slug> --name <change>
   merge-lane run --store <slug> --project <path> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
   session append --store <slug> --name <change> key value [key value ...]
@@ -101,6 +102,12 @@ cmd_model_get() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$TIER" ] || usage
   model_for_tier "$STORE" "$TIER"
+}
+
+cmd_model_verify() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  verify_model "$STORE" "$NAME"
 }
 
 cmd_merge_lane_run() {
@@ -222,6 +229,7 @@ case "$group $sub" in
   "workspace remove") cmd_workspace_remove "$@" ;;
   "gate run") cmd_gate_run "$@" ;;
   "model get") cmd_model_get "$@" ;;
+  "model verify") cmd_model_verify "$@" ;;
   "merge-lane run") cmd_merge_lane_run "$@" ;;
   "state init") cmd_state_init "$@" ;;
   "state get") cmd_state_get "$@" ;;

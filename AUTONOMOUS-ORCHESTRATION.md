@@ -71,9 +71,12 @@ append`, never edited after the fact.
    --project <path> --name <name>`: branch `change/<name>` off the project's trunk,
    worktree at a workspace root under the project, dependencies synced.
    Never dispatch work against the project's main checkout.
-3. **Propose** — draft the delta spec via the normal
-   `openspec-orchestrator` propose phase, scoped to the workspace, `--store
-   <slug>`. Before drafting prose, sketch the **seams** the change touches:
+3. **Propose** — always runs at the `deep` tier (see Model/effort routing
+   below), regardless of how small the change looks: a mistake here is the
+   most expensive one, because every later phase inherits it. Draft the
+   delta spec via the normal `openspec-orchestrator` propose phase, scoped
+   to the workspace, `--store <slug>`. Before drafting prose, sketch the
+   **seams** the change touches:
    existing seams preferred over new ones, fewest possible (one is ideal),
    each seam named with the files/modules behind it. Write this seam list
    to the change's state (`scripts/run-change state set ... seams
@@ -95,8 +98,11 @@ append`, never edited after the fact.
      mechanical/standard by triage, round 2 standard, round 3 deep). Still
      red after 3 → **Gate 1**: ask the human with the failure.
    - Green: continue to verify.
-6. **Verify** — check the implementation matches the proposal. A critical
-   finding → **Gate 1**. Otherwise continue.
+6. **Verify** — check the implementation matches the proposal, using a
+   model distinct from whichever one implemented it (`scripts/run-change
+   model verify --store <slug> --name <name>` — see the generator/checker
+   split under Model/effort routing). A critical finding → **Gate 1**.
+   Otherwise continue.
 7. **Archive** — finalize artifacts (`openspec-orchestrator` archive phase),
    commit on the branch.
 8. **Merge lane** — `scripts/run-change merge-lane run --store <slug>
@@ -208,9 +214,22 @@ Pick a tier per task, not per session:
 - `mechanical`: lint/format fixes, type-annotation-only fixes, commit
   message drafting, first-round red-gate triage (flake vs lint vs type vs
   logic).
-- `standard`: ordinary implementation tasks, tests, verify reports.
-- `deep`: decomposing a request into an initiative, design docs, anything
-  touching an invariant, fix rounds 2 and 3.
+- `standard`: ordinary implementation tasks, tests, verify reports (subject
+  to the generator/checker override below — verify's model must differ
+  from the implementer's, even if that means a tier it wouldn't otherwise need).
+- `deep`: Propose (drafting the delta spec and seam list, every change, not
+  just initiative decomposition), design docs, anything touching an
+  invariant, fix rounds 2 and 3.
+
+Specify/Plan (Propose) and Execute (Apply) are handled by the tiers above.
+Verify is different: it isn't sized by how hard the check is, but by
+whether it's independent of whoever wrote the code. A model is a weak
+reviewer of its own output, so Verify never reuses the implementer's
+model — `scripts/run-change model verify --store <slug> --name <change>`
+resolves `standard`'s model, and if that collides with the model the last
+`applying`/`checking` session-history entry recorded, escalates to
+`deep`'s model instead. Use `model verify`'s output for the Verify step,
+not `model get --tier standard` directly.
 
 Each tier maps to a concrete model, resolved via `scripts/run-change model
 get --store <slug> --tier <tier>` — the store's `openspec/config.yaml`

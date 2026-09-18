@@ -53,9 +53,13 @@ proposed → applying → checking → verified → archived → ready-to-merge 
 plus `blocked` (see bug triage below). State lives in
 `<store>/.orchestration/state/<change>.yaml`:
 `phase`, `fix_attempts`, `last_gate_result`, `last_verify_result`,
-`initiative`, `depends_on`, `follows`, `supersedes`, `blocked_on`, and a
-session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
-`gates_hit`, `transcript_id`) per orchestrator run against this change.
+`initiative`, `depends_on`, `seams`, `follows`, `supersedes`, `blocked_on`.
+Session history is a separate append-only log, one line per
+orchestrator/worker run against this change, at
+`<store>/.orchestration/state/<change>.sessions.log` (see **Session log**
+in CONTEXT.md) — `role: orchestrator|worker|resume`, `phase`, `gates_hit`,
+`transcript_id`, `model`, `tier`, written via `scripts/run-change session
+append`, never edited after the fact.
 
 1. **Slot** — `scripts/run-change slot acquire --store <slug> --project
    <path>` before
@@ -211,8 +215,12 @@ Pick a tier per task, not per session:
 Pick the smallest tier that can be wrong safely. Fix-loop escalates
 mechanical/standard → standard → deep → Gate 1. A worker that fails its own
 check once retries one tier up before it counts as a fix round. Record
-`model`/`tier` per session-history entry so a status/log view can show when
-a change burned expensive calls on mechanical work.
+`model` and `tier` on every session-history entry — `scripts/run-change
+session append --store <slug> --name <change> role worker phase applying
+tier mechanical model <model-id> transcript_id <id>` — so `session list`
+gives the full history and `status` surfaces each change's most recent
+tier in a `LAST_TIER` column, to catch when a change burned expensive
+calls on mechanical work.
 
 ## Hard rule: written for agents
 

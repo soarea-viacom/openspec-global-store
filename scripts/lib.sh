@@ -106,3 +106,24 @@ state_write() {
     index($0, "updated_at:") == 1 { print "updated_at: \""v"\""; next } { print }
   ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 }
+
+# Session log: sole owner of the session-history file, one logfmt line per
+# orchestrator/worker run against a change (name=value pairs, space
+# separated, values must not contain spaces). Append-only — a run's entry
+# is never edited after the fact, only added to. Nothing outside these two
+# functions may write or parse a session log.
+session_log_path() {
+  echo "$(state_root "$1")/$2.sessions.log"
+}
+
+# session_append <file> key value [key value ...] — append one line, ts auto-set.
+session_append() {
+  local f="$1"; shift
+  mkdir -p "$(dirname "$f")"
+  local line="ts=$(timestamp)"
+  while [ $# -ge 2 ]; do
+    line="$line $1=$2"
+    shift 2
+  done
+  echo "$line" >> "$f"
+}

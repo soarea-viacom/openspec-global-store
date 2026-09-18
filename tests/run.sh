@@ -63,9 +63,19 @@ else
   echo "FAIL state set refreshes updated_at"; fails=$((fails+1))
 fi
 
+# session log
+check_out "session list empty before any append" "" $RC session list --store teststore --name feat-a
+$RC session append --store teststore --name feat-a role worker phase applying tier mechanical model haiku-4.5 transcript_id t1
+$RC session append --store teststore --name feat-a role worker phase checking tier deep model opus-5 transcript_id t2
+check_out "session list shows first entry" "tier=mechanical model=haiku-4.5" $RC session list --store teststore --name feat-a
+check_out "session list shows second entry" "tier=deep model=opus-5" $RC session list --store teststore --name feat-a
+lines="$($RC session list --store teststore --name feat-a | wc -l | tr -d ' ')"
+[ "$lines" = "2" ] && echo "ok   session log appends, never rewrites" || { echo "FAIL session log appends, never rewrites (got $lines lines)"; fails=$((fails+1)); }
+
 # status
 check_out "status lists change" "feat-a" $RC status --store teststore
 check_out "status shows phase" "checking" $RC status --store teststore
+check_out "status shows last session tier" "deep" $RC status --store teststore
 
 # slots (cap=2 from store config)
 s1="$($RC slot acquire --store teststore --project "$PROJECT")"

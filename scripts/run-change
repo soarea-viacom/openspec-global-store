@@ -19,6 +19,8 @@ usage: run-change <command> [args]
   gate run       --store <slug> --project <path> --mode quick|full
   merge-lane run --store <slug> --project <path> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
+  session append --store <slug> --name <change> key value [key value ...]
+  session list   --store <slug> --name <change>
   status         --store <slug>
 EOF
   exit 1
@@ -160,6 +162,24 @@ cmd_state_set() {
   state_write "$f" ${args[@]+"${args[@]}"}
 }
 
+cmd_session_append() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  local f; f="$(session_log_path "$STORE" "$NAME")"
+  local args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in --store|--project|--name|--mode|--slot) shift 2 ;; *) args+=("$1"); shift ;; esac
+  done
+  session_append "$f" ${args[@]+"${args[@]}"}
+}
+
+cmd_session_list() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  local f; f="$(session_log_path "$STORE" "$NAME")"
+  [ -f "$f" ] && cat "$f" || true
+}
+
 cmd_status() {
   parse_opts "$@"
   [ -n "$STORE" ] || usage
@@ -168,14 +188,19 @@ cmd_status() {
     echo "no in-flight changes for store $STORE"
     return 0
   fi
-  printf "%-24s %-14s %-8s %-20s\n" "CHANGE" "PHASE" "FIXES" "BLOCKED_ON"
-  local f
+  printf "%-24s %-14s %-8s %-20s %-10s\n" "CHANGE" "PHASE" "FIXES" "BLOCKED_ON" "LAST_TIER"
+  local f name slog last_tier
   for f in "$root"/*.yaml; do
-    printf "%-24s %-14s %-8s %-20s\n" \
-      "$(state_field "$f" name)" \
+    name="$(state_field "$f" name)"
+    slog="$(session_log_path "$STORE" "$name")"
+    last_tier=""
+    [ -f "$slog" ] && last_tier="$(tail -n1 "$slog" | grep -o 'tier=[^ ]*' | cut -d= -f2 || true)"
+    printf "%-24s %-14s %-8s %-20s %-10s\n" \
+      "$name" \
       "$(state_field "$f" phase)" \
       "$(state_field "$f" fix_attempts)" \
-      "$(state_field "$f" blocked_on)"
+      "$(state_field "$f" blocked_on)" \
+      "${last_tier:--}"
   done
 }
 
@@ -192,5 +217,7 @@ case "$group $sub" in
   "state init") cmd_state_init "$@" ;;
   "state get") cmd_state_get "$@" ;;
   "state set") cmd_state_set "$@" ;;
+  "session append") cmd_session_append "$@" ;;
+  "session list") cmd_session_list "$@" ;;
   *) usage ;;
 esac

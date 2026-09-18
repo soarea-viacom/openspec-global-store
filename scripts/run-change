@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# Mechanical half of AUTONOMOUS-ORCHESTRATION.md: workspace/slot/gate/merge-lane
+# and state bookkeeping. Does not propose, implement, fix, or verify —
+# that's the calling agent's job, using the existing openspec-development
+# phases. This script only does the "none"-tier work (see AUTONOMOUS-
+# ORCHESTRATION.md model/effort routing).
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+source scripts/lib.sh
+
+usage() {
+  cat >&2 <<'EOF'
+usage: run-change <command> [args]
+
+  slot acquire   --store <slug> --project <path>
+  slot release   --store <slug> --slot <id>
+  workspace create --store <slug> --project <path> --name <change>
+  workspace remove  --store <slug> --project <path> --name <change>
+  gate run       --project <path> --mode quick|full
+  merge-lane run --store <slug> --project <path> --name <change>
+  state init|get|set --store <slug> --name <change> [key value ...]
+EOF
+  exit 1
+}
+
+parse_opts() {
+  # Fills STORE, PROJECT, NAME, MODE, SLOT from remaining args.
+  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --store) STORE="$2"; shift 2 ;;
+      --project) PROJECT="$2"; shift 2 ;;
+      --name) NAME="$2"; shift 2 ;;
+      --mode) MODE="$2"; shift 2 ;;
+      --slot) SLOT="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+}
+
+cmd_slot_acquire() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$PROJECT" ] || usage
+  local dir; dir="$(orchestration_dir "$STORE")/slots"
+  mkdir -p "$dir"
+  local cap; cap="$(concurrency_cap "$PROJECT")"
+  local i
+  for i in $(seq 1 "$cap"); do
+    if mkdir "$dir/$i" 2>/dev/null; then
+      echo "$i"
+      return 0
+    fi
+  done
+  echo "no free slot (cap=$cap) for store $STORE" >&2
+  return 1
+}
+
+cmd_slot_release() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$SLOT" ] || usage
+  local dir; dir="$(orchestration_dir "$STORE")/slots"
+  rmdir "$dir/$SLOT" 2>/dev/null || true
+}
+
+cmd_workspace_create() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
+  local branch="change/$NAME"
+  local wt_root="$PROJECT/.orchestration-workspaces"
+  mkdir -p "$wt_root"
+  local wt_path="$wt_root/$NAME"
+  git -C "$PROJECT" worktree add -b "$branch" "$wt_path" >&2
+  echo "$wt_path"
+}
+
+cmd_workspace_remove() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
+  local wt_path="$PROJECT/.orchestration-workspaces/$NAME"
+  git -C "$PROJECT" worktree remove "$wt_path" --force 2>/dev/null || true
+  git -C "$PROJECT" branch -D "change/$NAME" 2>/dev/null || true
+}
+
+cmd_gate_run() {
+  parse_opts "$@"
+  [ -n "$PROJECT" ] && [ -n "$MODE" ] || usage
+  local gcmd; gcmd="$(gate_command "$PROJECT" "$MODE")"
+  [ -n "$gcmd" ] || { echo "no orchestration.gate_${MODE} configured in $PROJECT/openspec/config.yaml" >&2; return 1; }
+  ( cd "$PROJECT" && eval "$gcmd" )
+}
+
+cmd_merge_lane_run() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
+  local dir; dir="$(orchestration_dir "$STORE")"
+  mkdir -p "$dir"
+  local lock="$dir/merge.lock"
+  local tries=0
+  until mkdir "$lock" 2>/dev/null; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 60 ] || { echo "merge lane busy for store $STORE" >&2; return 1; }
+    sleep 1
+  done
+  trap 'rmdir "'"$lock"'" 2>/dev/null || true' EXIT
+  local branch="change/$NAME"
+  local trunk
+  trunk="$(git -C "$PROJECT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##')"
+  [ -n "$trunk" ] || trunk="main"
+  git -C "$PROJECT" -C ".orchestration-workspaces/$NAME" merge "origin/$trunk" --no-edit
+  cmd_gate_run --project "$PROJECT" --mode full
+}
+
+STATE_ROOT() { echo "$(orchestration_dir "$1")/state"; }
+
+cmd_state_init() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  local root; root="$(STATE_ROOT "$STORE")"
+  mkdir -p "$root"
+  local f="$root/$NAME.yaml"
+  [ -f "$f" ] && return 0
+  cat > "$f" <<EOF
+name: $NAME
+phase: proposed
+fix_attempts: 0
+last_gate_result: ""
+last_verify_result: ""
+initiative: ""
+depends_on: []
+follows: ""
+supersedes: ""
+blocked_on: ""
+created_at: "$(timestamp)"
+updated_at: "$(timestamp)"
+EOF
+}
+
+cmd_state_get() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  cat "$(STATE_ROOT "$STORE")/$NAME.yaml"
+}
+
+cmd_state_set() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  local f="$(STATE_ROOT "$STORE")/$NAME.yaml"
+  [ -f "$f" ] || cmd_state_init --store "$STORE" --name "$NAME"
+  local rest=("$@")
+  # remaining non---flag args come in key/value pairs, e.g. phase applying
+  local args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in --store|--project|--name|--mode|--slot) shift 2 ;; *) args+=("$1"); shift ;; esac
+  done
+  local i=0
+  while [ "$i" -lt "${#args[@]}" ]; do
+    local key="${args[$i]}"; local val="${args[$((i+1))]}"
+    if grep -q "^$key:" "$f"; then
+      local tmp="$f.tmp"
+      awk -v k="$key" -v v="$val" 'BEGIN{FS=":"} $1==k {print k": "v; next} {print}' "$f" > "$tmp"
+      mv "$tmp" "$f"
+    else
+      echo "$key: $val" >> "$f"
+    fi
+    i=$((i+2))
+  done
+  awk -v v="$(timestamp)" '$1=="updated_at" {print "updated_at: \""v"\""; next} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+}
+
+[ $# -ge 1 ] || usage
+group="$1"; sub="${2:-}"; shift 2 2>/dev/null || shift $#
+case "$group $sub" in
+  "slot acquire") cmd_slot_acquire "$@" ;;
+  "slot release") cmd_slot_release "$@" ;;
+  "workspace create") cmd_workspace_create "$@" ;;
+  "workspace remove") cmd_workspace_remove "$@" ;;
+  "gate run") cmd_gate_run "$@" ;;
+  "merge-lane run") cmd_merge_lane_run "$@" ;;
+  "state init") cmd_state_init "$@" ;;
+  "state get") cmd_state_get "$@" ;;
+  "state set") cmd_state_set "$@" ;;
+  *) usage ;;
+esac

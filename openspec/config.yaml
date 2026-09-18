@@ -30,3 +30,13 @@ schema: spec-driven
 #     archive:
 #       guidance:
 #         - Summarize the archive outcome before finishing
+
+# Autonomous orchestration (optional, read by scripts/run-change in the
+# openspec-global-store engine — see AUTONOMOUS-ORCHESTRATION.md there).
+# Set this in the *target project's* own openspec/config.yaml, not in the
+# global store: concurrency and gates are scoped per project.
+# Example:
+#   orchestration:
+#     concurrency: 2
+#     gate_quick: "npm run lint && npm run typecheck"
+#     gate_full: "npm test"

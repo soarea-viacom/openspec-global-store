@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Human "what's in flight" view. Reads state from disk, not chat memory.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+source scripts/lib.sh
+
+STORE="${1:?usage: status <store-slug>}"
+root="$(STATE_ROOT() { echo "$(orchestration_dir "$1")/state"; }; STATE_ROOT "$STORE")"
+
+if [ ! -d "$root" ] || [ -z "$(ls -A "$root" 2>/dev/null)" ]; then
+  echo "no in-flight changes for store $STORE"
+  exit 0
+fi
+
+printf "%-24s %-14s %-8s %-20s\n" "CHANGE" "PHASE" "FIXES" "BLOCKED_ON"
+for f in "$root"/*.yaml; do
+  name=$(awk -F': ' '$1=="name"{print $2}' "$f")
+  phase=$(awk -F': ' '$1=="phase"{print $2}' "$f")
+  fixes=$(awk -F': ' '$1=="fix_attempts"{print $2}' "$f")
+  blocked=$(awk -F': ' '$1=="blocked_on"{print $2}' "$f")
+  printf "%-24s %-14s %-8s %-20s\n" "$name" "$phase" "$fixes" "${blocked:-\"\"}"
+done

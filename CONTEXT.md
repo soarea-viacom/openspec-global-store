@@ -112,7 +112,10 @@
   equivalent); for this engine that is the no-caller function scan in
   `tests/run.sh`.
 - **Merge lane**: the serialized merge-trunk-then-full-gate step behind
-  `<store>/.orchestration/merge.lock`.
+  `<store>/.orchestration/merge.lock`. Merges `origin/<trunk>` if that ref
+  exists, else the local trunk — local-only projects are supported; a
+  project with neither `origin/HEAD` nor a local `main`/`master` is
+  refused with a clear error.
 - **Initiative**: complex work decomposed into dependency-ordered changes.
   Its record, `<store>/.orchestration/initiatives/<name>.yaml` (`title`,
   `request`, `children` in merge order, `critique_rounds`,

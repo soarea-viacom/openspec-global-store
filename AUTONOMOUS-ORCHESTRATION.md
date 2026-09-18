@@ -186,7 +186,9 @@ append`, never edited after the fact.
    commit on the branch.
 8. **Merge lane** — `scripts/run-change merge-lane run --store <slug>
    --project <path> --name <name>`: acquire the project's single
-   merge lock, merge current trunk into the branch, rerun the full gate.
+   merge lock, merge current trunk into the branch (`origin/<trunk>` when
+   the project has a remote, the local trunk when it has none; trunk is
+   `origin/HEAD`, else local `main`, else `master`), rerun the full gate.
    Red → a fix round (same budget). Green → **Gate 2**: ask the human
    with a summary (diffstat, gate log, verify report).
 9. **Merged** — on approval, squash-merge into trunk (one commit, with the

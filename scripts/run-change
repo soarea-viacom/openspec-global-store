@@ -171,13 +171,23 @@ cmd_merge_lane_run() {
     sleep 1
   done
   trap 'rmdir "'"$lock"'" 2>/dev/null || true' EXIT
-  local branch="change/$NAME"
   local trunk
-  # || true: pipefail would abort the script before the main fallback below
+  # || true: pipefail would abort the script before the fallback below
   # whenever origin/HEAD is unset (e.g. remote added without a fetch).
   trunk="$(git -C "$PROJECT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##' || true)"
-  [ -n "$trunk" ] || trunk="main"
-  git -C "$(workspace_path "$STORE" "$NAME")" merge "origin/$trunk" --no-edit
+  if [ -z "$trunk" ]; then
+    local t
+    for t in main master; do
+      git -C "$PROJECT" rev-parse --verify -q "refs/heads/$t" >/dev/null && { trunk="$t"; break; }
+    done
+  fi
+  [ -n "$trunk" ] || { echo "cannot determine trunk for $PROJECT: no origin/HEAD and no local main or master" >&2; return 1; }
+  # Merge the remote-tracking trunk when the project has one; a local-only
+  # project (no remote) merges its local trunk instead. Never invent a
+  # remote ref that doesn't exist — that would fail late with a git error.
+  local ref="origin/$trunk"
+  git -C "$PROJECT" rev-parse --verify -q "refs/remotes/$ref" >/dev/null || ref="$trunk"
+  git -C "$(workspace_path "$STORE" "$NAME")" merge "$ref" --no-edit
   cmd_gate_run --store "$STORE" --project "$PROJECT" --name "$NAME" --mode full
 }
 

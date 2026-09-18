@@ -257,6 +257,24 @@ rmdir "$PROJECT/openspec"
 # merge lane: merges origin trunk into the change branch, reruns full gate, releases lock
 $RC workspace create --store teststore --project "$PROJECT" --name feat-a >/dev/null 2>&1
 check_out "merge lane merges trunk and runs full gate in the worktree" "FULL-OK in $STORE/.orchestration/workspaces/feat-a" $RC merge-lane run --store teststore --project "$PROJECT" --name feat-a
+
+# merge lane on a local-only project (no remote): merges the local trunk
+LOCAL="$TMP/local-project"
+git init -q -b main "$LOCAL"
+echo one > "$LOCAL/README" && git -C "$LOCAL" add -A && git -C "$LOCAL" commit -qm init
+$RC workspace create --store teststore --project "$LOCAL" --name feat-local >/dev/null 2>&1
+echo two > "$LOCAL/FROM-TRUNK" && git -C "$LOCAL" add -A && git -C "$LOCAL" commit -qm trunk-moves
+check_out "merge lane falls back to local trunk without a remote" "FULL-OK" $RC merge-lane run --store teststore --project "$LOCAL" --name feat-local
+check "local trunk commit reached the change worktree" test -f "$STORE/.orchestration/workspaces/feat-local/FROM-TRUNK"
+$RC workspace remove --store teststore --project "$LOCAL" --name feat-local
+# ... and errors clearly when there is no trunk to find at all
+NOTRUNK="$TMP/notrunk-project"
+git init -q -b trunk "$NOTRUNK"
+echo x > "$NOTRUNK/README" && git -C "$NOTRUNK" add -A && git -C "$NOTRUNK" commit -qm init
+$RC workspace create --store teststore --project "$NOTRUNK" --name feat-nt >/dev/null 2>&1
+check_out "merge lane errors when no trunk is identifiable" "cannot determine trunk" bash -c "$RC merge-lane run --store teststore --project '$NOTRUNK' --name feat-nt 2>&1; true"
+check "merge lock released after trunk error" test ! -d "$STORE/.orchestration/merge.lock"
+$RC workspace remove --store teststore --project "$NOTRUNK" --name feat-nt
 check "merge lock released" test ! -d "$STORE/.orchestration/merge.lock"
 $RC workspace remove --store teststore --project "$PROJECT" --name feat-a
 

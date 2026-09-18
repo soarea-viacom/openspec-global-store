@@ -132,6 +132,7 @@ last_gate_result: ""
 last_verify_result: ""
 initiative: ""
 depends_on: []
+seams: []
 follows: ""
 supersedes: ""
 blocked_on: ""

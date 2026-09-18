@@ -69,11 +69,21 @@ session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
    Never dispatch work against the project's main checkout.
 3. **Propose** — draft the delta spec via the normal
    `openspec-orchestrator` propose phase, scoped to the workspace, `--store
-   <slug>`. Commit on the branch. Never asks a human in autonomous mode.
-4. **Apply** — implement in dispatch groups (see model/effort tiers below).
-   Run the project's *quick* gate (lint, type check, last-failed tests —
-   `orchestration.gate_quick` command from the store's config) after each
-   group.
+   <slug>`. Before drafting prose, sketch the **seams** the change touches:
+   existing seams preferred over new ones, fewest possible (one is ideal),
+   each seam named with the files/modules behind it. Write this seam list
+   to the change's state (`scripts/run-change state set ... seams
+   "<seam>=<file>,<file>;<seam>=<file>"` — see **Seam list** in
+   CONTEXT.md), not just narrated in the delta spec prose — it is the input
+   dispatch groups are cut along in step 4 and what the disjoint-files
+   check reads, not a separate exercise redone at Apply time. Commit on the
+   branch. Never asks a human in autonomous mode.
+4. **Apply** — implement in dispatch groups, one per seam from the Propose
+   step's seam list (see model/effort tiers below). Before fanning groups
+   out, run the disjoint-files check below; a change too small to have
+   named more than one seam stays a single group. Run the project's *quick*
+   gate (lint, type check, last-failed tests — `orchestration.gate_quick`
+   command from the store's config) after each group.
 5. **Check** — run the project's *full* gate
    (`orchestration.gate_full`, parallelized if the project's test runner
    supports it).
@@ -95,6 +105,36 @@ session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
 
 Everything between gates is autonomous. Commits on `change/<name>` never
 ask. Squash-merge produces one commit per change on the project's trunk.
+
+## Disjoint-files check
+
+The one rule that gates every concurrency decision in this doc, at either
+granularity it applies to:
+
+> Two units of work may run at the same time only if the file lists behind
+> their seams don't overlap. If they overlap, run them in dependency/seam
+> order instead — never concurrently, and never merge the lists to "make it
+> fit."
+
+Seam file lists come from the change's state, not the delta spec prose:
+each change's `seams` field (written during Propose, step 3 — see
+**Seam list** in CONTEXT.md), read via `scripts/run-change state get
+--store <slug> --name <change>`. Nothing infers them after the fact, and
+nothing parses the delta spec to reconstruct them. The check applies at
+two granularities, same rule, same data source:
+
+- **Within a change**, across its own dispatch groups (step 4): compare
+  the `seams` groups pairwise before fanning any group out; a change whose
+  `seams` field names only one group never has this decision to make.
+- **Across a project**, among in-flight initiative children: compare the
+  `seams` field of every child not yet merged before starting a new one
+  concurrently, on top of (not instead of) the `depends_on` ordering.
+
+A file list that turns out to be wrong once real implementation starts
+(a shared barrel export, config, or type file no seam sketch named) is a
+mid-run finding, not a silent merge: fall back to sequential for the
+groups/children involved and fix it with `state set ... seams "..."`, the
+same command that wrote it.
 
 ## Resumability
 
@@ -134,13 +174,21 @@ request, ordered children with `depends_on`/`status`/`merged_commit`)
 instead of inferring the split later.
 
 - A child starts only when its dependencies are merged, up to the
-  concurrency cap. Concurrent children own disjoint files/areas — check
-  disjointness across all in-flight changes for that project.
+  concurrency cap, and only after the disjoint-files check below clears it
+  against every other in-flight child for that project.
 - Gate 2 is per child by default. The first Gate 2 of an initiative may
   offer "approve this merge and let remaining green children merge
   autonomously." Gate 1 always asks.
 - `scripts/run-change status` shows the initiative tree with per-child
   phase and blocker.
+- **Gates are orchestrator-owned.** Whether a child runs as a separate
+  resumed session or as a subagent dispatched live by one orchestrator
+  session, only the orchestrator talks to the human. A child that hits a
+  Gate 1 or Gate 2 condition escalates the finding (phase, gate log,
+  diffstat, verify report) up to the orchestrator and stops; it never
+  prompts the human itself. This keeps N concurrent children from producing
+  N uncoordinated interruptions and preserves the single-voice approval
+  flow the gates are built around.
 
 Every lifecycle commit (on the target project) carries trailers: `Change:`,
 `Initiative:`, `Depends-On:` (repeated), `Session:` — including the

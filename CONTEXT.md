@@ -10,6 +10,12 @@
   `<store>/.orchestration/state/`. Nothing else parses those files.
 - **Slot**: a concurrency token under `<store>/.orchestration/slots/`,
   capped by `orchestration.concurrency` in the store's config.
+- **Seam list**: the `seams` field in a change's state file, written during
+  Propose via `scripts/run-change state set --store <slug> --name <change>
+  seams "<seam>=<file>,<file>;<seam>=<file>"` — one `name=file,file,...`
+  group per seam, groups separated by `;`. The sole source the
+  disjoint-files check reads from; nothing infers seams from the delta spec
+  prose or from the code after the fact.
 - **Gate**: the project's quick or full check command
   (`orchestration.gate_quick` / `gate_full` in the *store's*
   `openspec/config.yaml` — single rule: a target project must not contain

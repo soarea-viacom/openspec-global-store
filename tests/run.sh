@@ -50,6 +50,8 @@ check_out "state get returns phase" "phase: proposed" $RC state get --store test
 $RC state set --store teststore --name feat-a phase applying blocked_on fix-b
 check_out "state set updates phase" "phase: applying" $RC state get --store teststore --name feat-a
 check_out "state set upserts new-style pair" "blocked_on: fix-b" $RC state get --store teststore --name feat-a
+$RC state set --store teststore --name feat-a seams "auth=src/auth/session.ts,src/auth/token.ts;billing=src/billing/invoice.ts"
+check_out "state set stores seam list" "auth=src/auth/session.ts,src/auth/token.ts;billing=src/billing/invoice.ts" $RC state get --store teststore --name feat-a
 created="$(grep '^created_at:' "$STORE/.orchestration/state/feat-a.yaml")"
 updated="$(grep '^updated_at:' "$STORE/.orchestration/state/feat-a.yaml")"
 [ "${created#created_at:}" != "${updated#updated_at:}" ] || sleep 1

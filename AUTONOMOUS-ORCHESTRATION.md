@@ -60,7 +60,7 @@ plus `blocked` (see bug triage below). State lives in
 Session history is a separate append-only log, one line per
 orchestrator/worker run against this change, at
 `<store>/.orchestration/state/<change>.sessions.log` (see **Session log**
-in CONTEXT.md) — `role: orchestrator|worker|resume`, `phase`, `gates_hit`,
+in CONTEXT.md) — `role: orchestrator|worker|advisor|resume`, `phase`, `gates_hit`,
 `transcript_id`, `model`, `tier`, written via `scripts/run-change session
 append`, never edited after the fact.
 
@@ -439,13 +439,56 @@ triage, round 2 standard, round 3 deep, then Gate 1. Each fixer logs a
 session entry with `phase checking` before Verify reruns, so `model verify`
 sees the fixer as the latest implementer and picks a different model to
 re-check its work. A worker that fails its own check once retries one tier
-up before it counts as a fix round. Record
+up before it counts as a fix round — but before failing, it may ask an
+advisor (below). Record
 `model` and `tier` on every session-history entry — resolve the model with
 `model get` first, then `scripts/run-change session append --store <slug>
 --name <change> role worker phase applying tier mechanical model
 <model-id> transcript_id <id>` — so `session list` gives the full history
 and `status` surfaces each change's most recent tier in a `LAST_TIER`
 column, to catch when a change burned expensive calls on mechanical work.
+
+### Advisor: the deep tier for one question, not the whole task
+
+Most of a `standard` or `mechanical` task is routine; the hard part, when
+there is one, is a slice — a design fork, a subtle bug, a piece of logic
+the worker keeps getting wrong. Re-running the whole task at `deep` pays
+top-tier prices for the routine part too. Instead a stuck worker packages
+the one question and hands it to an **advisor**: a subagent at the `deep`
+tier, fresh context, given the question, the proposal, and the file paths
+it needs — never the worker's transcript. The advisor is read-only. It
+returns an answer (a decision and why, or a diagnosis and the fix to make);
+the worker applies it and carries on. Log the call as a session entry with
+`role advisor tier deep` under the change.
+
+Bounds, because two agents cost more than one when the hard part isn't
+rare:
+
+- **One advisor call per worker task.** A second question means the task
+  is not routine — return, and the orchestrator re-dispatches the whole
+  task one tier up, as with a failed self-check.
+- **Two advisor calls per change** across all its workers. Past that, the
+  change was mis-tiered at Propose; note it in the verify report so the
+  next Propose for that area starts at `standard` or `deep` outright.
+- **Never from `deep`**, and never from a checker: Verify and the critic
+  are already the strong read of the work, and an advisor that advises
+  the checker collapses the generator/checker split.
+- **Ask before failing, not instead of checking.** The self-check and the
+  gate still run on the advised code; the advisor's answer is one more
+  input a fresh reader can verify, not an approval.
+
+### Coordination: blackboard only, no messaging
+
+Workers report to the orchestrator and never to each other. Everything an
+agent needs from another agent it reads from a file the orchestrator owns
+— the proposal, the seam list, the change's state, the verify or critique
+report. Those files are the blackboard, and they are enough because
+concurrent workers are on disjoint seams by construction: a cross-seam
+need that surfaces mid-run is a seam-list finding for the orchestrator,
+not a note for a sibling. There is no worker-to-worker messaging and no
+shared scratch file between concurrent workers. Both would let a wrong
+guess in one context spread to another without passing through a
+checkable artifact, which is exactly what **Isolation** exists to prevent.
 
 ## Hard rule: written for agents
 

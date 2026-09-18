@@ -17,6 +17,15 @@
   what it reads from disk; never another agent's transcript. Writers stay
   inside their seam's file list and never run a git command that writes;
   read-only workers are exempt from the disjoint-files check.
+- **Advisor**: a read-only `deep`-tier subagent a stuck `standard` or
+  `mechanical` worker asks one packaged question, fresh context, answer
+  only. Logged as `role advisor tier deep` in the change's session log.
+  Bounded: one per worker task, two per change, never from `deep` and
+  never from a checker. Distinct from tier escalation, which re-runs the
+  whole task at the higher tier.
+- **Blackboard**: the orchestrator-owned files agents share through —
+  proposal, seam list, state, reports. The only channel between agents;
+  there is no worker-to-worker messaging.
 - **Dispatch group**: the unit of concurrent implementation within a
   change — one writer worker per seam from the seam list, all sharing the
   change's worktree. The orchestrator commits once per wave after the

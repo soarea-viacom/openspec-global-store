@@ -1,6 +1,6 @@
 ---
 name: openspec-development
-description: Spec-driven development workflow using the OpenSpec CLI — propose a delta spec before touching code, implement against the approved proposal with tests, then archive into the living spec. Use when the user wants to add/change a feature under spec control, or explicitly invokes /opsx:propose, /opsx:apply, or /opsx:archive.
+description: Spec-driven development workflow using the OpenSpec CLI — propose a delta spec before touching code, implement against the approved proposal with tests, then archive into the living spec. Use when the user wants to add/change a feature under spec control, or explicitly invokes /sdd:propose, /sdd:apply, or /sdd:archive.
 ---
 
 # Global Spec-Driven Development (SDD) Skill
@@ -12,14 +12,14 @@ This profile enforces strict architectural integrity, preventing "vibe coding" a
 3. **Deterministic Implementation:** Prioritize maintainability, explicit type definitions, and testability over concise or clever code.
 
 ## Execution Workflow (OpenSpec 3-Phase Engine)
-- **Phase 1: Explore & Propose (`/opsx:propose`)**
+- **Phase 1: Explore & Propose (`/sdd:propose`)**
   - Read active code boundaries and structural modules.
   - Draft explicit architectural intent into a temporary delta spec.
   - Predict potential side effects or breaking changes in downstream dependencies.
-- **Phase 2: Active Implementation (`/opsx:apply`)**
+- **Phase 2: Active Implementation (`/sdd:apply`)**
   - Write modular, self-documenting code that maps 1:1 with the finalized proposal.
   - Implement accompanying integration or unit tests simultaneously.
-- **Phase 3: Final Consolidation (`/opsx:archive`)**
+- **Phase 3: Final Consolidation (`/sdd:archive`)**
   - Verify syntax execution and run the testing suite locally.
   - Cleanly merge finalized changes back into the project's living documentation profile.
 

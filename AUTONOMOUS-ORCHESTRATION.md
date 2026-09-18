@@ -1,7 +1,7 @@
 # Autonomous change orchestration
 
 Rule document for running OpenSpec changes autonomously instead of via three
-manually-triggered `/opsx:propose` / `/opsx:apply` / `/opsx:archive` calls.
+manually-triggered `/sdd:propose` / `/sdd:apply` / `/sdd:archive` calls.
 Read this before starting a change if the human asked for autonomous
 execution (e.g. "just get this done", "run it end to end") rather than
 step-by-step review. The plain manual mode in [SKILL.md](SKILL.md) stays

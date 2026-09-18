@@ -458,19 +458,25 @@ the one question and hands it to an **advisor**: a subagent at the `deep`
 tier, fresh context, given the question, the proposal, and the file paths
 it needs — never the worker's transcript. The advisor is read-only. It
 returns an answer (a decision and why, or a diagnosis and the fix to make);
-the worker applies it and carries on. Log the call as a session entry with
-`role advisor tier deep` under the change.
+the worker applies it and carries on. The call is obtained, never
+assumed: `scripts/run-change advisor request --store <slug> --name
+<change> --worker <transcript-id>` checks both caps below, logs the entry
+(`role advisor tier deep for=<worker>`) and prints the model to dispatch.
+A direct `session append` with `role advisor` is refused, so the log
+cannot show a call the engine did not grant.
 
-Bounds, because two agents cost more than one when the hard part isn't
-rare:
+Bounds, enforced by `advisor request`, because two agents cost more than
+one when the hard part isn't rare:
 
-- **One advisor call per worker task.** A second question means the task
-  is not routine — return, and the orchestrator re-dispatches the whole
-  task one tier up, as with a failed self-check.
+- **One advisor call per worker task.** A second request from the same
+  worker is refused: the task is not routine — return, and the
+  orchestrator re-dispatches the whole task one tier up, as with a failed
+  self-check.
 - **Two advisor calls per change** across all its workers — `status` shows
   the count against the cap in its `ADVISOR` column, read from the
-  session log. Past that, the change was mis-tiered at Propose; note it in the verify report so the
-  next Propose for that area starts at `standard` or `deep` outright.
+  session log. A third request is refused: the change was mis-tiered at
+  Propose; note it in the verify report so the next Propose for that area
+  starts at `standard` or `deep` outright.
 - **Never from `deep`**, and never from a checker: Verify and the critic
   are already the strong read of the work, and an advisor that advises
   the checker collapses the generator/checker split.

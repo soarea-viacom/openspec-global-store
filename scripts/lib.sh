@@ -201,6 +201,15 @@ advisor_calls() {
   grep -c 'role=advisor' "$f" || true
 }
 
+# advisor_calls_for <store-slug> <change-name> <worker-transcript-id> -> how
+# many advisor entries already name this worker (`for=<id>`). Per-worker cap
+# is 1: a second question means the task isn't routine — escalate the task.
+advisor_calls_for() {
+  local f; f="$(session_log_path "$1" "$2")"
+  [ -f "$f" ] || { echo 0; return 0; }
+  grep 'role=advisor' "$f" | grep -c "for=$3\( \|$\)" || true
+}
+
 # implementer_model <store-slug> <change-name> -> model of the most recent
 # applying/checking entry (the code currently on the branch).
 implementer_model() { last_model_for_phases "$1" "$2" 'applying|checking'; }

@@ -25,6 +25,7 @@ usage: run-change <command> [args]
   initiative init|get|set --store <slug> --name <initiative> [key value ...]
   initiative merged --store <slug> --name <initiative> --child <change> --commit <sha>
   session append --store <slug> --name <change> key value [key value ...]
+  advisor request --store <slug> --name <change> --worker <transcript-id>
   session list   --store <slug> --name <change>
   status         --store <slug>
 EOF
@@ -33,9 +34,10 @@ EOF
 
 parse_opts() {
   # Fills STORE, PROJECT, NAME, MODE, SLOT, TIER from remaining args.
-  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""; CHILD=""; COMMIT=""
+  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""; CHILD=""; COMMIT=""; WORKER=""
   while [ $# -gt 0 ]; do
     case "$1" in
+      --worker) WORKER="$2"; shift 2 ;;
       --child) CHILD="$2"; shift 2 ;;
       --commit) COMMIT="$2"; shift 2 ;;
       --store) STORE="$2"; shift 2 ;;
@@ -190,7 +192,7 @@ cmd_state_set() {
   # remaining non---flag args come in key/value pairs, e.g. phase applying
   local args=()
   while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit) shift 2 ;; *) args+=("$1"); shift ;; esac
+    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit|--worker) shift 2 ;; *) args+=("$1"); shift ;; esac
   done
   state_write "$f" ${args[@]+"${args[@]}"}
 }
@@ -199,12 +201,43 @@ cmd_session_append() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
   local f; f="$(session_log_path "$STORE" "$NAME")"
-  local args=()
+  local args=() prev=""
   while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit) shift 2 ;; *) args+=("$1"); shift ;; esac
+    case "$1" in
+      --store|--project|--name|--mode|--slot|--child|--commit|--worker) shift 2 ;;
+      *)
+        # advisor entries are written only by `advisor request`, which
+        # checks the caps first — a direct append would bypass them.
+        if [ "$prev" = "role" ] && [ "$1" = "advisor" ]; then
+          echo "role advisor is reserved: use 'advisor request --worker <transcript-id>' so the cap is enforced" >&2
+          return 1
+        fi
+        prev="$1"; args+=("$1"); shift ;;
+    esac
   done
   session_append "$f" ${args[@]+"${args[@]}"}
 }
+
+# advisor request: the only way to spend an advisor call. Refuses when the
+# change has used ADVISOR_CAP calls or this worker has already asked once;
+# otherwise logs the entry (the reservation) and prints the deep model id.
+cmd_advisor_request() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] && [ -n "$WORKER" ] || usage
+  local used; used="$(advisor_calls "$STORE" "$NAME")"
+  if [ "$used" -ge "$ADVISOR_CAP" ]; then
+    echo "advisor cap reached for $NAME ($used/$ADVISOR_CAP): the change was mis-tiered — note it in the verify report and escalate the task" >&2
+    return 1
+  fi
+  if [ "$(advisor_calls_for "$STORE" "$NAME" "$WORKER")" -ge 1 ]; then
+    echo "worker $WORKER already used its one advisor call on $NAME: the task is not routine — return and re-dispatch one tier up" >&2
+    return 1
+  fi
+  local model; model="$(model_for_tier "$STORE" deep)"
+  session_append "$(session_log_path "$STORE" "$NAME")" role advisor tier deep model "$model" for "$WORKER"
+  echo "$model"
+}
+
 
 cmd_session_list() {
   parse_opts "$@"
@@ -246,7 +279,7 @@ cmd_initiative_set() {
   [ -f "$f" ] || cmd_initiative_init --store "$STORE" --name "$NAME"
   local args=()
   while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit) shift 2 ;; *) args+=("$1"); shift ;; esac
+    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit|--worker) shift 2 ;; *) args+=("$1"); shift ;; esac
   done
   state_write "$f" ${args[@]+"${args[@]}"}
 }
@@ -348,6 +381,7 @@ case "$group $sub" in
   "initiative set") cmd_initiative_set "$@" ;;
   "initiative merged") cmd_initiative_merged "$@" ;;
   "session append") cmd_session_append "$@" ;;
+  "advisor request") cmd_advisor_request "$@" ;;
   "session list") cmd_session_list "$@" ;;
   *) usage ;;
 esac

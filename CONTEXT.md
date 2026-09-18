@@ -19,9 +19,11 @@
   read-only workers are exempt from the disjoint-files check.
 - **Advisor**: a read-only `deep`-tier subagent a stuck `standard` or
   `mechanical` worker asks one packaged question, fresh context, answer
-  only. Logged as `role advisor tier deep` in the change's session log.
-  Bounded: one per worker task, two per change, never from `deep` and
-  never from a checker. Distinct from tier escalation, which re-runs the
+  only. Obtained only via `scripts/run-change advisor request --worker
+  <transcript-id>`, which enforces the caps (one per worker task, two per
+  change — `ADVISOR_CAP` in `scripts/lib.sh`) and writes the `role advisor
+  tier deep for=<worker>` session entry itself; `session append` refuses
+  that role. Never from `deep` and never from a checker. Distinct from tier escalation, which re-runs the
   whole task at the higher tier.
 - **Blackboard**: the orchestrator-owned files agents share through —
   proposal, seam list, state, reports. The only channel between agents;

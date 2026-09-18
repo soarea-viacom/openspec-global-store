@@ -13,23 +13,24 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
 STORE="$TMP/store"
-mkdir -p "$STORE"
+mkdir -p "$STORE/openspec"
 cat > "$OPENSPEC_STORE_REGISTRY" <<EOF
 stores:
   teststore:
     local_path: $STORE
 EOF
-
-git init -q --bare -b main "$TMP/origin"
-git clone -q "$TMP/origin" "$TMP/project"
-PROJECT="$TMP/project"
-mkdir -p "$PROJECT/openspec"
-cat > "$PROJECT/openspec/config.yaml" <<'EOF'
+# single rule: orchestration config lives in the store, never in the project
+cat > "$STORE/openspec/config.yaml" <<'EOF'
 orchestration:
   concurrency: 2
   gate_quick: "echo QUICK-OK"
   gate_full: "echo FULL-OK"
 EOF
+
+git init -q --bare -b main "$TMP/origin"
+git clone -q "$TMP/origin" "$TMP/project"
+PROJECT="$TMP/project"
+echo hello > "$PROJECT/README"
 git -C "$PROJECT" add -A && git -C "$PROJECT" commit -qm init && git -C "$PROJECT" push -q origin main
 
 fails=0
@@ -64,7 +65,7 @@ fi
 check_out "status lists change" "feat-a" $RC status --store teststore
 check_out "status shows phase" "checking" $RC status --store teststore
 
-# slots (cap=2 from project config)
+# slots (cap=2 from store config)
 s1="$($RC slot acquire --store teststore --project "$PROJECT")"
 s2="$($RC slot acquire --store teststore --project "$PROJECT")"
 check_out "third slot refused at cap" "no free slot" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"
@@ -81,9 +82,17 @@ $RC workspace remove --store teststore --project "$PROJECT" --name feat-a
 check "workspace removed" test ! -e "$wt"
 check "branch removed" bash -c "! git -C '$PROJECT' rev-parse --verify -q change/feat-a"
 
-# gates
-check_out "quick gate runs configured command" "QUICK-OK" $RC gate run --project "$PROJECT" --mode quick
-check_out "full gate runs configured command" "FULL-OK" $RC gate run --project "$PROJECT" --mode full
+# gates (config read from the store, project has no openspec/)
+check_out "quick gate runs configured command" "QUICK-OK" $RC gate run --store teststore --project "$PROJECT" --mode quick
+check_out "full gate runs configured command" "FULL-OK" $RC gate run --store teststore --project "$PROJECT" --mode full
+
+# single rule: a project containing openspec/ is refused outright
+mkdir "$PROJECT/openspec"
+check_out "slot acquire refuses project with openspec/" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"
+check_out "workspace create refuses project with openspec/" "refusing" bash -c "$RC workspace create --store teststore --project '$PROJECT' --name feat-x 2>&1; true"
+check_out "gate run refuses project with openspec/" "refusing" bash -c "$RC gate run --store teststore --project '$PROJECT' --mode quick 2>&1; true"
+check_out "merge lane refuses project with openspec/" "refusing" bash -c "$RC merge-lane run --store teststore --project '$PROJECT' --name feat-x 2>&1; true"
+rmdir "$PROJECT/openspec"
 
 # merge lane: merges origin trunk into the change branch, reruns full gate, releases lock
 $RC workspace create --store teststore --project "$PROJECT" --name feat-a >/dev/null 2>&1

@@ -33,14 +33,15 @@ schema: spec-driven
 
 # Autonomous orchestration (optional, read by scripts/run-change in the
 # openspec-global-store engine — see AUTONOMOUS-ORCHESTRATION.md there).
-# Set this in the *target project's* own openspec/config.yaml, not in the
-# global store: concurrency and gates are scoped per project.
+# Single rule: this block lives ONLY in a store's openspec/config.yaml.
+# Target projects must not contain an openspec/ folder at all — run-change
+# refuses any project that does.
 # Example:
 #   orchestration:
 #     concurrency: 2
 #     gate_quick: "npm run lint && npm run typecheck"
 #     gate_full: "npm test"
-# This repo is itself a target: its engine scripts are gated by tests/run.sh.
+# This store gates its own engine scripts with tests/run.sh.
 orchestration:
   concurrency: 1
   gate_quick: "bash -n scripts/run-change && bash -n scripts/lib.sh"

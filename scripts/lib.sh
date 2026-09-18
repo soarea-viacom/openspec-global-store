@@ -24,19 +24,39 @@ orchestration_dir() {
   echo "$path/.orchestration"
 }
 
-# concurrency_cap <project_path> -> N from that project's openspec/config.yaml
+# Orchestration config lives ONLY in the store's openspec/config.yaml.
+# Single rule: a target project must not contain an openspec/ folder at all
+# (require_no_project_openspec below); there is no project-side fallback.
+store_config() {
+  local slug="$1"
+  local path
+  path="$(store_path "$slug")"
+  [ -n "$path" ] || { echo "store '$slug' not found in $REGISTRY" >&2; return 1; }
+  echo "$path/openspec/config.yaml"
+}
+
+require_no_project_openspec() {
+  local project="$1"
+  [ ! -e "$project/openspec" ] || {
+    echo "refusing: $project contains an openspec/ folder — orchestrated projects must not; orchestration config lives in the store's openspec/config.yaml" >&2
+    return 1
+  }
+}
+
+# concurrency_cap <store-slug> -> N from the store's openspec/config.yaml
 # orchestration.concurrency, default 1.
 concurrency_cap() {
-  local project="$1"
-  local cfg="$project/openspec/config.yaml"
+  local cfg
+  cfg="$(store_config "$1")"
   local n
   n="$(awk '/^orchestration:/{f=1;next} f && /^[a-zA-Z]/{exit} f && /concurrency:/{print $2; exit}' "$cfg" 2>/dev/null || true)"
   echo "${n:-1}"
 }
 
 gate_command() {
-  local project="$1" mode="$2" # quick|full -> reads orchestration.gate_quick / gate_full
-  local cfg="$project/openspec/config.yaml"
+  local slug="$1" mode="$2" # quick|full -> reads orchestration.gate_quick / gate_full
+  local cfg
+  cfg="$(store_config "$slug")"
   local key="gate_${mode}"
   awk -v key="$key" '
     /^orchestration:/ { f=1; next }

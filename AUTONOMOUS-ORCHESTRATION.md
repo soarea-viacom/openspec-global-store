@@ -29,6 +29,11 @@ A "change" always has two locations, never one:
   cased; see that skill for the exact algorithm — there is no persisted
   mapping file, so always recompute, never cache a slug across sessions).
 
+Orchestration config (`orchestration.concurrency`, `gate_quick`,
+`gate_full`) lives ONLY in the store's `openspec/config.yaml` — single
+rule: a target project must not contain an `openspec/` folder at all, and
+`scripts/run-change` refuses any project that does.
+
 Runtime state (slots, merge lock, phase files, initiatives) lives under
 `<store>/.orchestration/`, scoped to that one store/project. The concurrency
 cap and merge lane in this doc are **per target project**, not global — two
@@ -54,8 +59,8 @@ session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
 
 1. **Slot** — `scripts/run-change slot acquire --store <slug> --project
    <path>` before
-   starting; blocks/queues if the project's concurrency cap (N, from that
-   project's `openspec/config.yaml` `orchestration.concurrency`, default 1)
+   starting; blocks/queues if the project's concurrency cap (N, from the
+   store's `openspec/config.yaml` `orchestration.concurrency`, default 1)
    is full. A change `blocked` on a dependency releases its slot while
    waiting — a dependency can never deadlock the cap.
 2. **Workspace** — `scripts/run-change workspace create --store <slug>
@@ -67,10 +72,10 @@ session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
    <slug>`. Commit on the branch. Never asks a human in autonomous mode.
 4. **Apply** — implement in dispatch groups (see model/effort tiers below).
    Run the project's *quick* gate (lint, type check, last-failed tests —
-   `orchestration.gate.quick` command from that project's config) after each
+   `orchestration.gate_quick` command from the store's config) after each
    group.
 5. **Check** — run the project's *full* gate
-   (`orchestration.gate.full`, parallelized if the project's test runner
+   (`orchestration.gate_full`, parallelized if the project's test runner
    supports it).
    - Red: auto-fix, bounded at 3 rounds (tier escalation: round 1
      mechanical/standard by triage, round 2 standard, round 3 deep). Still

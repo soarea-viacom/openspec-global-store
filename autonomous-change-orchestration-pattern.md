@@ -20,7 +20,8 @@ that doc applies.
 - Parallelize the test runner after confirming no shared-state tests break;
   pin the ones that do to serial rather than dropping parallelism everywhere.
 - Provide a `--quick` gate (lint, type check, last-failed tests) and a full
-  gate via `openspec/config.yaml` `orchestration.gate_quick` / `gate_full`.
+  gate via the *store's* `openspec/config.yaml` `orchestration.gate_quick` /
+  `gate_full` — never in the project, which must not contain `openspec/`.
 - Add the workspace root to version-control ignore rules; fix validation
   scripts that assume real directories rather than symlinks (`find -H`).
 - Optional deterministic enforcement: a pre-execution hook that intercepts

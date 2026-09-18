@@ -9,9 +9,11 @@
   `state_write`) — sole owner of the state-file YAML dialect under
   `<store>/.orchestration/state/`. Nothing else parses those files.
 - **Slot**: a concurrency token under `<store>/.orchestration/slots/`,
-  capped per project by `orchestration.concurrency`.
+  capped by `orchestration.concurrency` in the store's config.
 - **Gate**: the project's quick or full check command
-  (`orchestration.gate_quick` / `gate_full` in its `openspec/config.yaml`).
+  (`orchestration.gate_quick` / `gate_full` in the *store's*
+  `openspec/config.yaml` — single rule: a target project must not contain
+  an `openspec/` folder; the engine refuses one that does).
 - **Merge lane**: the serialized merge-trunk-then-full-gate step behind
   `<store>/.orchestration/merge.lock`.
 - **Initiative**: complex work decomposed into dependency-ordered changes.

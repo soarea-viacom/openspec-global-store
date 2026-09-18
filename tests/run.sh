@@ -76,6 +76,9 @@ lines="$($RC session list --store teststore --name feat-a | wc -l | tr -d ' ')"
 check_out "status lists change" "feat-a" $RC status --store teststore
 check_out "status shows phase" "checking" $RC status --store teststore
 check_out "status shows last session tier" "deep" $RC status --store teststore
+check_out "status shows advisor calls against cap" "0/2" $RC status --store teststore
+$RC session append --store teststore --name feat-a role advisor phase applying tier deep model opus-5 transcript_id t3
+check_out "status counts advisor calls" "1/2" $RC status --store teststore
 
 # slots (cap=2 from store config)
 s1="$($RC slot acquire --store teststore --project "$PROJECT")"

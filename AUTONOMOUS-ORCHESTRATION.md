@@ -467,8 +467,9 @@ rare:
 - **One advisor call per worker task.** A second question means the task
   is not routine — return, and the orchestrator re-dispatches the whole
   task one tier up, as with a failed self-check.
-- **Two advisor calls per change** across all its workers. Past that, the
-  change was mis-tiered at Propose; note it in the verify report so the
+- **Two advisor calls per change** across all its workers — `status` shows
+  the count against the cap in its `ADVISOR` column, read from the
+  session log. Past that, the change was mis-tiered at Propose; note it in the verify report so the
   next Propose for that area starts at `standard` or `deep` outright.
 - **Never from `deep`**, and never from a checker: Verify and the critic
   are already the strong read of the work, and an advisor that advises

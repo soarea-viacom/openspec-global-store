@@ -284,17 +284,18 @@ cmd_status() {
     echo "no in-flight changes for store $STORE"
     return 0
   fi
-  printf "%-24s %-14s %-8s %-20s %-10s\n" "CHANGE" "PHASE" "FIXES" "BLOCKED_ON" "LAST_TIER"
+  printf "%-24s %-14s %-8s %-9s %-20s %-10s\n" "CHANGE" "PHASE" "FIXES" "ADVISOR" "BLOCKED_ON" "LAST_TIER"
   local f name slog last_tier
   for f in "$root"/*.yaml; do
     name="$(state_field "$f" name)"
     slog="$(session_log_path "$STORE" "$name")"
     last_tier=""
     [ -f "$slog" ] && last_tier="$(tail -n1 "$slog" | grep -o 'tier=[^ ]*' | cut -d= -f2 || true)"
-    printf "%-24s %-14s %-8s %-20s %-10s\n" \
+    printf "%-24s %-14s %-8s %-9s %-20s %-10s\n" \
       "$name" \
       "$(state_field "$f" phase)" \
       "$(state_field "$f" fix_attempts)" \
+      "$(advisor_calls "$STORE" "$name")/$ADVISOR_CAP" \
       "$(state_field "$f" blocked_on)" \
       "${last_tier:--}"
   done

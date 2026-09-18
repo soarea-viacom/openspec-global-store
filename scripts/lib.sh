@@ -190,6 +190,17 @@ last_model_for_phases() {
     | grep -o 'model=[^ ]*' | cut -d= -f2 || true
 }
 
+# advisor_calls <store-slug> <change-name> -> count of role=advisor session
+# entries. The per-change advisor cap (see Advisor in
+# AUTONOMOUS-ORCHESTRATION.md) is enforced by the orchestrator against this
+# number; the log is the only record of it, so nothing else caches a count.
+ADVISOR_CAP=2
+advisor_calls() {
+  local f; f="$(session_log_path "$1" "$2")"
+  [ -f "$f" ] || { echo 0; return 0; }
+  grep -c 'role=advisor' "$f" || true
+}
+
 # implementer_model <store-slug> <change-name> -> model of the most recent
 # applying/checking entry (the code currently on the branch).
 implementer_model() { last_model_for_phases "$1" "$2" 'applying|checking'; }

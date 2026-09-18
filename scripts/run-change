@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Mechanical half of AUTONOMOUS-ORCHESTRATION.md: workspace/slot/gate/merge-lane
 # and state bookkeeping. Does not propose, implement, fix, or verify —
-# that's the calling agent's job, using the existing openspec-development
+# that's the calling agent's job, using the existing openspec-orchestrator
 # phases. This script only does the "none"-tier work (see AUTONOMOUS-
 # ORCHESTRATION.md model/effort routing).
 set -euo pipefail

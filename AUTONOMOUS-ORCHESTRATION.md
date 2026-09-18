@@ -68,7 +68,7 @@ session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
    worktree at a workspace root under the project, dependencies synced.
    Never dispatch work against the project's main checkout.
 3. **Propose** — draft the delta spec via the normal
-   `openspec-development` propose phase, scoped to the workspace, `--store
+   `openspec-orchestrator` propose phase, scoped to the workspace, `--store
    <slug>`. Commit on the branch. Never asks a human in autonomous mode.
 4. **Apply** — implement in dispatch groups (see model/effort tiers below).
    Run the project's *quick* gate (lint, type check, last-failed tests —
@@ -83,7 +83,7 @@ session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
    - Green: continue to verify.
 6. **Verify** — check the implementation matches the proposal. A critical
    finding → **Gate 1**. Otherwise continue.
-7. **Archive** — finalize artifacts (`openspec-development` archive phase),
+7. **Archive** — finalize artifacts (`openspec-orchestrator` archive phase),
    commit on the branch.
 8. **Merge lane** — `scripts/run-change merge-lane run --store <slug>
    --project <path> --name <name>`: acquire the project's single

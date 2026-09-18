@@ -146,7 +146,16 @@ append`, never edited after the fact.
    and commits — never while a worker is still writing.
 5. **Check** — run the project's *full* gate
    (`orchestration.gate_full`, parallelized if the project's test runner
-   supports it).
+   supports it). The full gate must include the project's **dead-code
+   pass** — `knip` for JS/TS, `vulture` for Python, the ecosystem's
+   equivalent otherwise — reporting unused files, unused exports and
+   unused dependencies as one red result. Agents leave abandoned work
+   behind: an approach tried and replaced, a dependency pulled in for an
+   idea then dropped, a helper refactored past. None of it fails a test,
+   so a passing suite cannot see it, and Verify reads the diff against
+   the proposal, not the whole graph. Only a graph tool in the gate does.
+   Its red is a normal fix round, triaged to `mechanical`: delete what it
+   names.
    - Red: a **fix round** (see below). Out of rounds → **Gate 1**: ask the
      human with the failure.
    - Green: continue to verify.
@@ -422,9 +431,10 @@ Pick a tier per task, not per session:
 
 - `none`: workspace create/remove, running the gate, merge lane, state/
   initiative bookkeeping, commit trailers, archival file moves.
-- `mechanical`: lint/format fixes, type-annotation-only fixes, commit
-  message drafting, first-round red-gate triage (flake vs lint vs type vs
-  logic).
+- `mechanical`: lint/format fixes, type-annotation-only fixes, deleting
+  dead code and unused dependencies the gate's dead-code pass names,
+  commit message drafting, first-round red-gate triage (flake vs lint vs
+  type vs dead code vs logic).
 - `standard`: ordinary implementation tasks, tests, verify reports (subject
   to the generator/checker override below — verify's model must differ
   from the implementer's, even if that means a tier it wouldn't otherwise need).
@@ -545,5 +555,10 @@ checkable artifact, which is exactly what **Isolation** exists to prevent.
   no abstraction with a single caller.
 - Keep it short: the shortest artifact, rule, commit message, gate summary,
   or reply that is complete.
+- Leave nothing abandoned: a replaced approach, a helper refactored past,
+  a dependency pulled in for a dropped idea — delete it in the same
+  change. The full gate's dead-code pass is what enforces this; a worker
+  that "might need it later" is wrong, because a later change can add it
+  back from git history.
 - Verify reports human-narrative comments and oversized artifacts as
   findings; the fix round for them runs at the mechanical tier.

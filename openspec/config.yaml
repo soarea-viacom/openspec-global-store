@@ -40,8 +40,11 @@ schema: spec-driven
 #   orchestration:
 #     concurrency: 2
 #     gate_quick: "npm run lint && npm run typecheck"
-#     gate_full: "npm test"
-# This store gates its own engine scripts with tests/run.sh.
+#     gate_full: "npm test && npx knip"
+# gate_full must include the project's dead-code pass (knip, vulture, ...):
+# tests cannot see the abandoned helpers and unused deps agents leave.
+# This store gates its own engine scripts with tests/run.sh, whose
+# no-caller function scan is the dead-code pass for bash.
 orchestration:
   concurrency: 1
   gate_quick: "bash -n scripts/run-change && bash -n scripts/lib.sh"

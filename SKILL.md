@@ -54,7 +54,7 @@ Every OpenSpec CLI call below gets `--store <slug>` appended — e.g. `openspec 
   - Write modular, self-documenting code that maps 1:1 with the finalized proposal.
   - Implement accompanying integration or unit tests simultaneously.
 - **Phase 3: Final Consolidation (`/sdd:archive`)**
-  - Verify syntax execution and run the testing suite locally.
+  - Verify syntax execution and run the testing suite locally, plus the project's dead-code pass (`knip` for JS/TS, `vulture` for Python, or equivalent) — a passing suite cannot see an abandoned helper or an unused dependency this change left behind; delete what the pass names before archiving.
   - Cleanly merge finalized changes back into the store's living specs.
 
 ## Autonomous mode
@@ -79,4 +79,4 @@ whenever the human wants to review after each phase.
 - Never write to any path under the project root for OpenSpec purposes.
 - Never omit `--store <slug>` on an OpenSpec CLI call once a store is resolved — a bare command silently falls back to the current directory as root, which would put artifacts in the wrong place.
 - **Hard refusal:** if the project contains an `openspec/` folder (previously `init`ed the traditional way), this skill must not run at all — checked first thing in Step 0. Tell the user the project has a traditional OpenSpec root with its own generated `/opsx:*` commands, and to use those; do not proceed, do not work around it. `scripts/run-change` in the engine enforces the same rule deterministically.
-- Autonomous-orchestration config (`orchestration.concurrency`, `gate_quick`, `gate_full`, `model_mechanical`, `model_standard`, `model_deep`) goes in the **store's** `openspec/config.yaml` (`~/openspec-stores/<slug>/openspec/config.yaml`) — never in the project. This is the single location the engine reads. The `model_*` keys are optional overrides; `scripts/run-change model get` falls back to the engine's default tier→model table when a store doesn't set them.
+- Autonomous-orchestration config (`orchestration.concurrency`, `gate_quick`, `gate_full` — which must include the project's dead-code pass, e.g. `npm test && npx knip` — `model_mechanical`, `model_standard`, `model_deep`) goes in the **store's** `openspec/config.yaml` (`~/openspec-stores/<slug>/openspec/config.yaml`) — never in the project. This is the single location the engine reads. The `model_*` keys are optional overrides; `scripts/run-change model get` falls back to the engine's default tier→model table when a store doesn't set them.

@@ -51,6 +51,16 @@ check "lib.sh parses" bash -n scripts/lib.sh
 check "run.sh parses" bash -n tests/run.sh
 [ "$fails" -eq 0 ] || { echo "syntax errors — not running behavior tests"; exit 1; }
 
+# dead-code pass (the bash stand-in for knip): every function defined in the
+# engine must be referenced somewhere other than its own definition.
+dead=""
+for fn in $(grep -ohE '^[a-z_]+\(\)' scripts/lib.sh scripts/run-change | tr -d '()'); do
+  if ! grep -hE "\b$fn\b" scripts/lib.sh scripts/run-change tests/run.sh | grep -qvE "^$fn\(\)"; then
+    dead="$dead $fn"
+  fi
+done
+check "no engine function without a caller${dead:+ (dead:$dead)}" test -z "$dead"
+
 # state
 check "state init creates file" $RC state init --store teststore --name feat-a
 check_out "state get returns phase" "phase: proposed" $RC state get --store teststore --name feat-a

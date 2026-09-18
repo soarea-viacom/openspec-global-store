@@ -107,7 +107,10 @@
 - **Gate**: the project's quick or full check command
   (`orchestration.gate_quick` / `gate_full` in the *store's*
   `openspec/config.yaml` — single rule: a target project must not contain
-  an `openspec/` folder; the engine refuses one that does).
+  an `openspec/` folder; the engine refuses one that does). The full gate
+  includes the project's dead-code pass (`knip`, `vulture`, or
+  equivalent); for this engine that is the no-caller function scan in
+  `tests/run.sh`.
 - **Merge lane**: the serialized merge-trunk-then-full-gate step behind
   `<store>/.orchestration/merge.lock`.
 - **Initiative**: complex work decomposed into dependency-ordered changes.

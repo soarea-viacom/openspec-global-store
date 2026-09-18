@@ -52,13 +52,14 @@ plus `blocked` (see bug triage below). State lives in
 session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
 `gates_hit`, `transcript_id`) per orchestrator run against this change.
 
-1. **Slot** — `scripts/run-change slot acquire --store <slug>` before
+1. **Slot** — `scripts/run-change slot acquire --store <slug> --project
+   <path>` before
    starting; blocks/queues if the project's concurrency cap (N, from that
    project's `openspec/config.yaml` `orchestration.concurrency`, default 1)
    is full. A change `blocked` on a dependency releases its slot while
    waiting — a dependency can never deadlock the cap.
-2. **Workspace** — `scripts/run-change workspace create <name> --store
-   <slug> --project <path>`: branch `change/<name>` off the project's trunk,
+2. **Workspace** — `scripts/run-change workspace create --store <slug>
+   --project <path> --name <name>`: branch `change/<name>` off the project's trunk,
    worktree at a workspace root under the project, dependencies synced.
    Never dispatch work against the project's main checkout.
 3. **Propose** — draft the delta spec via the normal
@@ -80,7 +81,7 @@ session history entry (`name`, `role: orchestrator|worker|resume`, `phase`,
 7. **Archive** — finalize artifacts (`openspec-development` archive phase),
    commit on the branch.
 8. **Merge lane** — `scripts/run-change merge-lane run --store <slug>
-   --project <path> --branch change/<name>`: acquire the project's single
+   --project <path> --name <name>`: acquire the project's single
    merge lock, merge current trunk into the branch, rerun the full gate.
    Red → back to the auto-fix step above. Green → **Gate 2**: ask the human
    with a summary (diffstat, gate log, verify report).

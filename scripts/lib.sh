@@ -46,3 +46,43 @@ gate_command() {
 }
 
 timestamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# State module: sole owner of the state-file YAML dialect (flat "key: value",
+# values may contain colons, optional surrounding quotes). Nothing outside
+# these three functions may awk/grep a state file.
+state_root() {
+  echo "$(orchestration_dir "$1")/state"
+}
+
+# state_field <file> <key> -> value with surrounding quotes stripped, empty if absent.
+state_field() {
+  awk -v k="$2" '
+    index($0, k": ") == 1 {
+      v = substr($0, length(k) + 3)
+      gsub(/^"|"$/, "", v)
+      print v; exit
+    }
+    $0 == k":" { print ""; exit }
+  ' "$1"
+}
+
+# state_write <file> key value [key value ...] — upsert pairs, refresh updated_at.
+state_write() {
+  local f="$1"; shift
+  while [ $# -ge 2 ]; do
+    local key="$1" val="$2"; shift 2
+    local tmp="$f.tmp"
+    if grep -q "^$key:" "$f"; then
+      awk -v k="$key" -v v="$val" '
+        index($0, k":") == 1 { print k": "v; next } { print }
+      ' "$f" > "$tmp"
+    else
+      cat "$f" > "$tmp"
+      echo "$key: $val" >> "$tmp"
+    fi
+    mv "$tmp" "$f"
+  done
+  awk -v v="$(timestamp)" '
+    index($0, "updated_at:") == 1 { print "updated_at: \""v"\""; next } { print }
+  ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+}

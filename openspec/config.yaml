@@ -40,3 +40,8 @@ schema: spec-driven
 #     concurrency: 2
 #     gate_quick: "npm run lint && npm run typecheck"
 #     gate_full: "npm test"
+# This repo is itself a target: its engine scripts are gated by tests/run.sh.
+orchestration:
+  concurrency: 1
+  gate_quick: "bash -n scripts/run-change && bash -n scripts/lib.sh"
+  gate_full: "./tests/run.sh"

@@ -19,6 +19,7 @@ usage: run-change <command> [args]
   gate run       --project <path> --mode quick|full
   merge-lane run --store <slug> --project <path> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
+  status         --store <slug>
 EOF
   exit 1
 }
@@ -104,18 +105,18 @@ cmd_merge_lane_run() {
   trap 'rmdir "'"$lock"'" 2>/dev/null || true' EXIT
   local branch="change/$NAME"
   local trunk
-  trunk="$(git -C "$PROJECT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##')"
+  # || true: pipefail would abort the script before the main fallback below
+  # whenever origin/HEAD is unset (e.g. remote added without a fetch).
+  trunk="$(git -C "$PROJECT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##' || true)"
   [ -n "$trunk" ] || trunk="main"
   git -C "$PROJECT" -C ".orchestration-workspaces/$NAME" merge "origin/$trunk" --no-edit
   cmd_gate_run --project "$PROJECT" --mode full
 }
 
-STATE_ROOT() { echo "$(orchestration_dir "$1")/state"; }
-
 cmd_state_init() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
-  local root; root="$(STATE_ROOT "$STORE")"
+  local root; root="$(state_root "$STORE")"
   mkdir -p "$root"
   local f="$root/$NAME.yaml"
   [ -f "$f" ] && return 0
@@ -138,36 +139,43 @@ EOF
 cmd_state_get() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
-  cat "$(STATE_ROOT "$STORE")/$NAME.yaml"
+  cat "$(state_root "$STORE")/$NAME.yaml"
 }
 
 cmd_state_set() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
-  local f="$(STATE_ROOT "$STORE")/$NAME.yaml"
+  local f="$(state_root "$STORE")/$NAME.yaml"
   [ -f "$f" ] || cmd_state_init --store "$STORE" --name "$NAME"
-  local rest=("$@")
   # remaining non---flag args come in key/value pairs, e.g. phase applying
   local args=()
   while [ $# -gt 0 ]; do
     case "$1" in --store|--project|--name|--mode|--slot) shift 2 ;; *) args+=("$1"); shift ;; esac
   done
-  local i=0
-  while [ "$i" -lt "${#args[@]}" ]; do
-    local key="${args[$i]}"; local val="${args[$((i+1))]}"
-    if grep -q "^$key:" "$f"; then
-      local tmp="$f.tmp"
-      awk -v k="$key" -v v="$val" 'BEGIN{FS=":"} $1==k {print k": "v; next} {print}' "$f" > "$tmp"
-      mv "$tmp" "$f"
-    else
-      echo "$key: $val" >> "$f"
-    fi
-    i=$((i+2))
+  state_write "$f" ${args[@]+"${args[@]}"}
+}
+
+cmd_status() {
+  parse_opts "$@"
+  [ -n "$STORE" ] || usage
+  local root; root="$(state_root "$STORE")"
+  if [ ! -d "$root" ] || [ -z "$(ls -A "$root" 2>/dev/null)" ]; then
+    echo "no in-flight changes for store $STORE"
+    return 0
+  fi
+  printf "%-24s %-14s %-8s %-20s\n" "CHANGE" "PHASE" "FIXES" "BLOCKED_ON"
+  local f
+  for f in "$root"/*.yaml; do
+    printf "%-24s %-14s %-8s %-20s\n" \
+      "$(state_field "$f" name)" \
+      "$(state_field "$f" phase)" \
+      "$(state_field "$f" fix_attempts)" \
+      "$(state_field "$f" blocked_on)"
   done
-  awk -v v="$(timestamp)" '$1=="updated_at" {print "updated_at: \""v"\""; next} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
 [ $# -ge 1 ] || usage
+if [ "$1" = "status" ]; then shift; cmd_status "$@"; exit $?; fi
 group="$1"; sub="${2:-}"; shift 2 2>/dev/null || shift $#
 case "$group $sub" in
   "slot acquire") cmd_slot_acquire "$@" ;;

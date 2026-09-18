@@ -126,9 +126,13 @@ append`, never edited after the fact.
 4. **Apply** — implement in dispatch groups, one per seam from the Propose
    step's seam list (see model/effort tiers below). Before fanning groups
    out, run the disjoint-files check below; a change too small to have
-   named more than one seam stays a single group. Run the project's *quick*
-   gate (lint, type check, last-failed tests — `orchestration.gate_quick`
-   command from the store's config) after each group.
+   named more than one seam stays a single group. Groups that pass the
+   check run concurrently as separate workers in the change's one worktree,
+   each confined to its seam's file list (see **Isolation** below: own
+   context, no git writes). When every group in the wave has returned, the
+   orchestrator runs the project's *quick* gate (lint, type check,
+   last-failed tests — `orchestration.gate_quick` from the store's config)
+   and commits — never while a worker is still writing.
 5. **Check** — run the project's *full* gate
    (`orchestration.gate_full`, parallelized if the project's test runner
    supports it).
@@ -175,6 +179,41 @@ append`, never edited after the fact.
 Everything between gates is autonomous. Commits on `change/<name>` never
 ask. Squash-merge produces one commit per change on the project's trunk.
 
+## Isolation
+
+Three layers keep concurrent agents from corrupting each other. They are
+independent: each one holds even if the others are misconfigured.
+
+- **Context.** Every worker — dispatch group, fixer, critic, Verify, triage
+  — runs in its own context window. It receives exactly what the
+  orchestrator hands it (proposal, its seam's file list, its task, a
+  report) plus what it reads from disk itself; never another worker's
+  transcript, and never the orchestrator's. A wrong guess made in one
+  window cannot spread to another except through a file, and every file
+  that crosses between agents (spec, seam list, state, reports) is
+  something the next reader can check against the code. This is the
+  default when dispatching a subagent; the rule is to never defeat it by
+  pasting one worker's output into another's prompt as fact.
+- **Files.** Two writers may run at once only if the file lists behind
+  their seams are disjoint — the check below. A worker writes only inside
+  its own seam's list; a file it needs that isn't listed is a mid-run
+  seam-list finding (below), not a silent edit. **A read-only worker is
+  always collision-safe**: critic, Verify, triage, and any investigation
+  never write, so they never need the check and may run beside any writer
+  in any worktree. The one caveat is coherence, not collision — a checker
+  reading a worktree while a writer is mid-edit sees a torn tree. So
+  checkers start after the wave they judge has returned and been
+  committed; they may overlap freely with writers in other worktrees.
+- **Git.** Every change has its own worktree on its own branch (step 2), so
+  changes never share an index or a working tree. Within a change, the
+  concurrent dispatch groups do share the worktree, and a shared git index
+  is a shared file: two `git add`s or two commits at once corrupt it even
+  when the edited files are disjoint. Hence workers never run any git
+  command that writes — no add, commit, stash, checkout, reset, or branch.
+  The orchestrator is the only committer: once per wave after the quick
+  gate, once per phase after that. A worker that wants to "save its
+  progress" returns instead.
+
 ## Disjoint-files check
 
 The one rule that gates every concurrency decision in this doc, at either
@@ -195,6 +234,7 @@ two granularities, same rule, same data source:
 - **Within a change**, across its own dispatch groups (step 4): compare
   the `seams` groups pairwise before fanning any group out; a change whose
   `seams` field names only one group never has this decision to make.
+  Read-only workers are outside the check entirely (see **Isolation**).
 - **Across a project**, among in-flight initiative children: compare the
   `seams` field of every child not yet merged before starting a new one
   concurrently, on top of (not instead of) the `depends_on` ordering.

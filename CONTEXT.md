@@ -8,6 +8,16 @@
 - **State module**: `scripts/lib.sh` (`state_root`, `state_field`,
   `state_write`) — sole owner of the state-file YAML dialect under
   `<store>/.orchestration/state/`. Nothing else parses those files.
+- **Worker**: one agent dispatched by the orchestrator into its own context
+  window for one task — a dispatch group, a fixer, a critic, a Verify
+  checker, a triage read. Receives only what the orchestrator hands it plus
+  what it reads from disk; never another agent's transcript. Writers stay
+  inside their seam's file list and never run a git command that writes;
+  read-only workers are exempt from the disjoint-files check.
+- **Dispatch group**: the unit of concurrent implementation within a
+  change — one writer worker per seam from the seam list, all sharing the
+  change's worktree. The orchestrator commits once per wave after the
+  quick gate; workers never commit.
 - **Slot**: a concurrency token under `<store>/.orchestration/slots/`,
   capped by `orchestration.concurrency` in the store's config.
 - **Seam list**: the `seams` field in a change's state file, written during

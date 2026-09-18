@@ -52,6 +52,34 @@ parse_opts() {
   done
 }
 
+# kv_args "$@" -> PAIRS holds the key/value args left after the --flags
+# parse_opts consumed. Every command that takes trailing pairs uses this.
+kv_args() {
+  PAIRS=()
+  while [ $# -gt 0 ]; do
+    case "$1" in --store|--project|--name|--mode|--slot|--tier|--child|--commit|--worker) shift 2 ;; *) PAIRS+=("$1"); shift ;; esac
+  done
+}
+
+# set_record <file> key value [key value ...] — the one upsert path for
+# change state and initiative records. Convergence needs the previous
+# checker result, so whenever a real last_*_result is about to be
+# overwritten — by a new result or by the "" written before a recheck — it
+# is shifted into prev_*_result here, mechanically. Overwriting an empty
+# value shifts nothing, so the round the next report is compared against
+# survives the clear. The orchestrator never writes prev_* itself.
+set_record() {
+  local f="$1"; shift
+  local i key cur
+  for ((i = 0; i + 1 < $#; i += 2)); do
+    key="${@:i+1:1}"
+    case "$key" in last_verify_result|last_critique_result) ;; *) continue ;; esac
+    cur="$(state_field "$f" "$key")"
+    [ -n "$cur" ] && state_write "$f" "prev_${key#last_}" "$cur"
+  done
+  state_write "$f" "$@"
+}
+
 cmd_slot_acquire() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$PROJECT" ] || usage
@@ -192,47 +220,25 @@ cmd_state_set() {
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
   local f="$(state_root "$STORE")/$NAME.yaml"
   [ -f "$f" ] || cmd_state_init --store "$STORE" --name "$NAME"
-  # remaining non---flag args come in key/value pairs, e.g. phase applying
-  local args=()
-  while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit|--worker) shift 2 ;; *) args+=("$1"); shift ;; esac
-  done
-  # Convergence needs the previous checker result. Whenever a real
-  # last_*_result is about to be overwritten — by a new result or by the
-  # "" the orchestrator writes before a recheck — shift it into
-  # prev_*_result here, mechanically, so the orchestrator can't forget.
-  # Overwriting an empty value shifts nothing, so the round the next report
-  # is compared against survives the clear.
-  local i key cur
-  for i in "${!args[@]}"; do
-    [ $((i % 2)) -eq 0 ] || continue
-    key="${args[$i]}"
-    case "$key" in last_verify_result|last_critique_result) ;; *) continue ;; esac
-    cur="$(state_field "$f" "$key")"
-    [ -n "$cur" ] && state_write "$f" "prev_${key#last_}" "$cur"
-  done
-  state_write "$f" ${args[@]+"${args[@]}"}
+  kv_args "$@"
+  set_record "$f" ${PAIRS[@]+"${PAIRS[@]}"}
 }
 
 cmd_session_append() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
   local f; f="$(session_log_path "$STORE" "$NAME")"
-  local args=() prev=""
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --store|--project|--name|--mode|--slot|--child|--commit|--worker) shift 2 ;;
-      *)
-        # advisor entries are written only by `advisor request`, which
-        # checks the caps first — a direct append would bypass them.
-        if [ "$prev" = "role" ] && [ "$1" = "advisor" ]; then
-          echo "role advisor is reserved: use 'advisor request --worker <transcript-id>' so the cap is enforced" >&2
-          return 1
-        fi
-        prev="$1"; args+=("$1"); shift ;;
-    esac
+  kv_args "$@"
+  # advisor entries are written only by `advisor request`, which checks the
+  # caps first — a direct append would bypass them.
+  local i
+  for ((i = 0; i + 1 < ${#PAIRS[@]}; i += 2)); do
+    if [ "${PAIRS[$i]}" = "role" ] && [ "${PAIRS[$((i + 1))]}" = "advisor" ]; then
+      echo "role advisor is reserved: use 'advisor request --worker <transcript-id>' so the cap is enforced" >&2
+      return 1
+    fi
   done
-  session_append "$f" ${args[@]+"${args[@]}"}
+  session_append "$f" ${PAIRS[@]+"${PAIRS[@]}"}
 }
 
 # advisor request: the only way to spend an advisor call. Refuses when the
@@ -277,6 +283,7 @@ request: ""
 children: []
 critique_rounds: 0
 last_critique_result: ""
+prev_critique_result: ""
 merged: ""
 created_at: "$(timestamp)"
 updated_at: "$(timestamp)"
@@ -294,11 +301,8 @@ cmd_initiative_set() {
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
   local f="$(initiative_root "$STORE")/$NAME.yaml"
   [ -f "$f" ] || cmd_initiative_init --store "$STORE" --name "$NAME"
-  local args=()
-  while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit|--worker) shift 2 ;; *) args+=("$1"); shift ;; esac
-  done
-  state_write "$f" ${args[@]+"${args[@]}"}
+  kv_args "$@"
+  set_record "$f" ${PAIRS[@]+"${PAIRS[@]}"}
 }
 
 # initiative merged: record the squash-merge commit of one child in the

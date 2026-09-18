@@ -10,7 +10,10 @@
   worktree, never the project's main checkout.
 - **State module**: `scripts/lib.sh` (`state_root`, `state_field`,
   `state_write`) — sole owner of the state-file YAML dialect under
-  `<store>/.orchestration/state/`. Nothing else parses those files.
+  `<store>/.orchestration/state/`. Nothing else parses those files. All
+  upserts from the CLI — change state and initiative records alike — go
+  through one helper, `set_record` in `scripts/run-change`, which is also
+  where the `prev_*_result` shift lives.
 - **Worker**: one agent dispatched by the orchestrator into its own context
   window for one task — a dispatch group, a fixer, a critic, a Verify
   checker, a triage read. Receives only what the orchestrator hands it plus

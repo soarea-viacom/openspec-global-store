@@ -149,6 +149,8 @@ check "initiative init creates file" $RC initiative init --store teststore --nam
 check_out "initiative get has critique_rounds" "critique_rounds: 0" $RC initiative get --store teststore --name init-a
 $RC initiative set --store teststore --name init-a children feat-a,feat-new critique_rounds 1 last_critique_result blocking:2
 check_out "initiative set upserts rounds" "critique_rounds: 1" $RC initiative get --store teststore --name init-a
+$RC initiative set --store teststore --name init-a last_critique_result blocking:1
+check_out "initiative set shifts prev critique result too" "prev_critique_result: blocking:2" $RC initiative get --store teststore --name init-a
 check "initiative is not a change state file" bash -c "! test -f '$STORE/.orchestration/state/init-a.yaml'"
 check_out "status shows initiative tree" "init-a" $RC status --store teststore
 check_out "status shows started child phase" "feat-a" $RC status --store teststore

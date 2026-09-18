@@ -74,8 +74,9 @@
   `<store>/.orchestration/merge.lock`.
 - **Initiative**: complex work decomposed into dependency-ordered changes.
   Its record, `<store>/.orchestration/initiatives/<name>.yaml` (`title`,
-  `request`, `children`, `critique_rounds`, `last_critique_result`), is
-  written only via `scripts/run-change initiative init|get|set` and uses
+  `request`, `children` in merge order, `critique_rounds`,
+  `last_critique_result`, `merged` as a `child=sha` map), is written only
+  via `scripts/run-change initiative init|get|set|merged` and uses
   the state module's YAML dialect, but lives outside `state/` so `status`
   never lists it as a change.
 

@@ -166,7 +166,11 @@ append`, never edited after the fact.
    Red → a fix round (same budget). Green → **Gate 2**: ask the human
    with a summary (diffstat, gate log, verify report).
 9. **Merged** — on approval, squash-merge into trunk (one commit, with the
-   trailers below), remove the workspace, release the slot.
+   trailers below), remove the workspace, release the slot. If the change
+   belongs to an initiative, record the commit on it first:
+   `scripts/run-change initiative merged --store <slug> --name
+   <initiative> --child <name> --commit <sha>` — the initiative record
+   outlives the child's state file.
 
 Everything between gates is autonomous. Commits on `change/<name>` never
 ask. Squash-merge produces one commit per change on the project's trunk.
@@ -237,8 +241,13 @@ parts that could merge independently. Record an initiative
 (`scripts/run-change initiative init|set --store <slug> --name <name>
 title ... request ... children a,b,c` →
 `<store>/.orchestration/initiatives/<name>.yaml`, plus `critique_rounds`
-and `last_critique_result` for its critique loop) instead of inferring the
-split later. Per-child `depends_on` lives on each child's own state file.
+and `last_critique_result` for its critique loop, and `merged` — a
+`child=sha` map filled in by `initiative merged` as each child lands)
+instead of inferring the split later. `children` is ordered: it is the
+intended merge order, and a child may only precede another it does not
+depend on. Per-child `depends_on` lives on each child's own state file;
+the initiative's order must be consistent with those edges, which the
+critique checks.
 
 - A child starts only when its dependencies are merged, up to the
   concurrency cap, and only after the disjoint-files check below clears it
@@ -247,8 +256,9 @@ split later. Per-child `depends_on` lives on each child's own state file.
   offer "approve this merge and let remaining green children merge
   autonomously." Gate 1 always asks.
 - `scripts/run-change status` shows the initiative tree — critique rounds
-  and result, then each child with its phase and blocker, or
-  `not-started` if it has no state file yet.
+  and result, then each child in merge order with its phase and blocker,
+  `not-started` if it has no state file yet, or `merged <sha>` once its
+  commit is on the record.
 - **Gates are orchestrator-owned.** Whether a child runs as a separate
   resumed session or as a subagent dispatched live by one orchestrator
   session, only the orchestrator talks to the human. A child that hits a
@@ -303,8 +313,8 @@ the others:
 
 - **Initiative records** (`<store>/.orchestration/initiatives/<name>.yaml`).
   Standards: the children together cover the request and nothing more;
-  `depends_on` is acyclic and every edge is real (the child cannot start
-  without it); no two children that could run concurrently share a file
+  `depends_on` is acyclic, every edge is real (the child cannot start
+  without it), and the `children` order respects every edge; no two children that could run concurrently share a file
   in their seam lists — a miss here surfaces as a merge conflict several
   hours later; each child is small enough to be a single change. Log the
   author's session entry under the initiative's name (`session append

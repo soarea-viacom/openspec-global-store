@@ -23,6 +23,7 @@ usage: run-change <command> [args]
   merge-lane run --store <slug> --project <path> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
   initiative init|get|set --store <slug> --name <initiative> [key value ...]
+  initiative merged --store <slug> --name <initiative> --child <change> --commit <sha>
   session append --store <slug> --name <change> key value [key value ...]
   session list   --store <slug> --name <change>
   status         --store <slug>
@@ -32,9 +33,11 @@ EOF
 
 parse_opts() {
   # Fills STORE, PROJECT, NAME, MODE, SLOT, TIER from remaining args.
-  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""
+  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""; CHILD=""; COMMIT=""
   while [ $# -gt 0 ]; do
     case "$1" in
+      --child) CHILD="$2"; shift 2 ;;
+      --commit) COMMIT="$2"; shift 2 ;;
       --store) STORE="$2"; shift 2 ;;
       --project) PROJECT="$2"; shift 2 ;;
       --name) NAME="$2"; shift 2 ;;
@@ -182,7 +185,7 @@ cmd_state_set() {
   # remaining non---flag args come in key/value pairs, e.g. phase applying
   local args=()
   while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot) shift 2 ;; *) args+=("$1"); shift ;; esac
+    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit) shift 2 ;; *) args+=("$1"); shift ;; esac
   done
   state_write "$f" ${args[@]+"${args[@]}"}
 }
@@ -193,7 +196,7 @@ cmd_session_append() {
   local f; f="$(session_log_path "$STORE" "$NAME")"
   local args=()
   while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot) shift 2 ;; *) args+=("$1"); shift ;; esac
+    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit) shift 2 ;; *) args+=("$1"); shift ;; esac
   done
   session_append "$f" ${args[@]+"${args[@]}"}
 }
@@ -219,6 +222,7 @@ request: ""
 children: []
 critique_rounds: 0
 last_critique_result: ""
+merged: ""
 created_at: "$(timestamp)"
 updated_at: "$(timestamp)"
 EOF
@@ -237,9 +241,34 @@ cmd_initiative_set() {
   [ -f "$f" ] || cmd_initiative_init --store "$STORE" --name "$NAME"
   local args=()
   while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot) shift 2 ;; *) args+=("$1"); shift ;; esac
+    case "$1" in --store|--project|--name|--mode|--slot|--child|--commit) shift 2 ;; *) args+=("$1"); shift ;; esac
   done
   state_write "$f" ${args[@]+"${args[@]}"}
+}
+
+# initiative merged: record the squash-merge commit of one child in the
+# initiative's `merged` map ("child=sha,child=sha", upserted). The child
+# must be listed in `children` — an unlisted child merging under this
+# initiative means the record and the work disagree.
+cmd_initiative_merged() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] && [ -n "$CHILD" ] && [ -n "$COMMIT" ] || usage
+  local f="$(initiative_root "$STORE")/$NAME.yaml"
+  [ -f "$f" ] || { echo "no initiative $NAME in store $STORE" >&2; return 1; }
+  case ",$(state_field "$f" children)," in
+    *",$CHILD,"*) ;;
+    *) echo "$CHILD is not a child of initiative $NAME" >&2; return 1 ;;
+  esac
+  local cur; cur="$(state_field "$f" merged)"
+  local out="" pair kept=0
+  IFS=',' read -ra pairs <<< "$cur"
+  for pair in ${pairs[@]+"${pairs[@]}"}; do
+    [ -n "$pair" ] || continue
+    if [ "${pair%%=*}" = "$CHILD" ]; then pair="$CHILD=$COMMIT"; kept=1; fi
+    out="${out:+$out,}$pair"
+  done
+  [ "$kept" = 1 ] || out="${out:+$out,}$CHILD=$COMMIT"
+  state_write "$f" merged "$out"
 }
 
 cmd_status() {
@@ -267,18 +296,23 @@ cmd_status() {
   local iroot; iroot="$(initiative_root "$STORE")"
   [ -d "$iroot" ] && [ -n "$(ls -A "$iroot" 2>/dev/null)" ] || return 0
   echo
-  printf "%-24s %-8s %-14s %s\n" "INITIATIVE" "ROUNDS" "CRITIQUE" "CHILDREN"
-  local child cf
+  printf "%-24s %-8s %-14s %s\n" "INITIATIVE" "ROUNDS" "CRITIQUE" "CHILDREN (merge order)"
+  local child cf merged sha
   for f in "$iroot"/*.yaml; do
     name="$(state_field "$f" name)"
+    merged=",$(state_field "$f" merged),"
     printf "%-24s %-8s %-14s %s\n" "$name" \
       "$(state_field "$f" critique_rounds)" \
       "$(state_field "$f" last_critique_result)" \
       "$(state_field "$f" children)"
-    # children is "a,b,c"; a child without a state file hasn't started.
+    # children is "a,b,c" in merge order; a merged child is reported from the
+    # initiative's `merged` map even after its state file is gone.
     for child in $(state_field "$f" children | tr -d '[]' | tr ',' ' '); do
       cf="$root/$child.yaml"
-      if [ -f "$cf" ]; then
+      sha="${merged#*,$child=}"
+      if [ "$sha" != "$merged" ]; then
+        printf "  %-22s %-14s %s\n" "$child" "merged" "${sha%%,*}"
+      elif [ -f "$cf" ]; then
         printf "  %-22s %-14s blocked_on=%s\n" "$child" "$(state_field "$cf" phase)" "$(state_field "$cf" blocked_on)"
       else
         printf "  %-22s %-14s\n" "$child" "not-started"
@@ -306,6 +340,7 @@ case "$group $sub" in
   "initiative init") cmd_initiative_init "$@" ;;
   "initiative get") cmd_initiative_get "$@" ;;
   "initiative set") cmd_initiative_set "$@" ;;
+  "initiative merged") cmd_initiative_merged "$@" ;;
   "session append") cmd_session_append "$@" ;;
   "session list") cmd_session_list "$@" ;;
   *) usage ;;

@@ -137,6 +137,13 @@ check_out "status shows started child phase" "feat-a" $RC status --store teststo
 check_out "status shows unstarted child" "not-started" $RC status --store teststore
 $RC session append --store teststore --name init-a role worker phase proposed tier deep model claude-opus-5-custom transcript_id t9
 check_out "model critic works for an initiative name" "no model distinct from proposer" bash -c "$RC model critic --store teststore --name init-a 2>&1; true"
+check_out "initiative merged refuses unlisted child" "not a child" bash -c "$RC initiative merged --store teststore --name init-a --child feat-zzz --commit abc 2>&1; true"
+$RC initiative merged --store teststore --name init-a --child feat-a --commit abc1234
+check_out "initiative merged records sha" "merged: feat-a=abc1234" $RC initiative get --store teststore --name init-a
+$RC initiative merged --store teststore --name init-a --child feat-new --commit def5678
+$RC initiative merged --store teststore --name init-a --child feat-a --commit aaa0000
+check_out "initiative merged upserts and keeps order" "merged: feat-a=aaa0000,feat-new=def5678" $RC initiative get --store teststore --name init-a
+check_out "status shows merged child with sha" "aaa0000" $RC status --store teststore
 
 # single rule: a project containing openspec/ is refused outright
 mkdir "$PROJECT/openspec"

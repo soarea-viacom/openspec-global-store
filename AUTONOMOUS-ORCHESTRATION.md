@@ -52,8 +52,8 @@ proposed → applying → checking → verified → archived → ready-to-merge 
 
 plus `blocked` (see bug triage below). State lives in
 `<store>/.orchestration/state/<change>.yaml`:
-`phase`, `fix_attempts`, `last_gate_result`, `last_verify_result`,
-`initiative`, `depends_on`, `seams`, `follows`, `supersedes`, `blocked_on`.
+`phase`, `propose_rounds`, `last_critique_result`, `fix_attempts`,
+`last_gate_result`, `last_verify_result`, `initiative`, `depends_on`, `seams`, `follows`, `supersedes`, `blocked_on`.
 Session history is a separate append-only log, one line per
 orchestrator/worker run against this change, at
 `<store>/.orchestration/state/<change>.sessions.log` (see **Session log**
@@ -83,8 +83,44 @@ append`, never edited after the fact.
    "<seam>=<file>,<file>;<seam>=<file>"` — see **Seam list** in
    CONTEXT.md), not just narrated in the delta spec prose — it is the input
    dispatch groups are cut along in step 4 and what the disjoint-files
-   check reads, not a separate exercise redone at Apply time. Commit on the
-   branch. Never asks a human in autonomous mode.
+   check reads, not a separate exercise redone at Apply time. Log the
+   session entry with `phase proposed` before the critique below runs.
+
+   **Critique** — nothing downstream can catch a wrong spec, because Apply
+   builds to it and Verify grades against it. So before the spec is
+   committed, a critic with a fresh context and a model distinct from the
+   proposer's (`scripts/run-change model critic --store <slug> --name
+   <name>`) reads the originating request, the draft delta spec, the seam
+   list, and the codebase — never the proposer's transcript — and judges
+   the draft on five standards:
+   - **Fidelity**: every part of the request is covered, nothing beyond it
+     is added.
+   - **Seams are real**: each named file exists, is where that behavior
+     actually lives, and the list is complete — a missing file here breaks
+     the disjoint-files check silently.
+   - **Testable**: each requirement has a scenario a Verify checker could
+     grade the code against without guessing.
+   - **Right size**: smallest change that satisfies the request; flags
+     when it should instead be an initiative (see below) or is padded.
+   - **Written for agents**: the hard rule at the end of this doc.
+
+   The critic writes a **critique report** to
+   `<store>/.orchestration/state/<name>.critique.md` (overwritten each
+   round) and sets `last_critique_result`:
+   - `clean` — commit the spec and seam list on the branch, continue.
+   - `findings:<n>` — each finding names the spec section or seam, the
+     defect, and what would satisfy it. The proposer (same `deep` tier)
+     revises only what the findings name, logs another `proposed` entry,
+     and the critic reruns with the prior report, stating per finding
+     whether it is closed. `propose_rounds` counts these; cap 2, separate
+     from `fix_attempts`. Still not clean → **Gate 1** with the latest
+     report and draft: the request is cheaper to clarify now than to build
+     wrong.
+   - `request` — the originating request is itself contradictory or too
+     ambiguous to draft against. → **Gate 1** immediately.
+
+   This is the one place autonomous mode may ask a human before code
+   exists.
 4. **Apply** — implement in dispatch groups, one per seam from the Propose
    step's seam list (see model/effort tiers below). Before fanning groups
    out, run the disjoint-files check below; a change too small to have
@@ -239,14 +275,17 @@ Pick a tier per task, not per session:
   invariant, fix rounds 2 and 3.
 
 Specify/Plan (Propose) and Execute (Apply) are handled by the tiers above.
-Verify is different: it isn't sized by how hard the check is, but by
-whether it's independent of whoever wrote the code. A model is a weak
+The two checkers — Propose's critic and Verify — are different: they
+aren't sized by how hard the check is, but by whether they're independent
+of whoever produced the thing being checked. A model is a weak
 reviewer of its own output, so Verify runs in a fresh context (proposal,
 diff, prior report — not the implementer's or fixer's transcript) and
 never reuses the implementer's model — `scripts/run-change model verify --store <slug> --name <change>`
 resolves `standard`'s model, and if that collides with the model the last
 `applying`/`checking` session-history entry recorded, escalates to
-`deep`'s model instead. Use `model verify`'s output for the Verify step,
+`deep`'s model instead. `model critic` does the same against the last
+`proposed` entry; since Propose runs at `deep`, the critic normally lands
+on `standard`'s model. Use these commands' output for the checker steps,
 not `model get --tier standard` directly.
 
 Each tier maps to a concrete model, resolved via `scripts/run-change model

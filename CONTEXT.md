@@ -31,13 +31,21 @@
   (`orchestration.model_<tier>`) if set, else the default table in
   `model_for_tier` (`scripts/lib.sh`) — the only place a specific model id
   is hardcoded in the engine.
-- **Generator/checker split**: the rule that Verify's model must differ
-  from whichever model most recently implemented the change.
-  `implementer_model` (`scripts/lib.sh`) reads the last `applying`/
-  `checking` entry's `model` from the session log; `verify_model` resolves
-  `standard`'s model and escalates to `deep`'s if that collides, erroring
-  if every tier still resolves to the same id. Exposed as `scripts/
-  run-change model verify --store <slug> --name <change>`.
+- **Generator/checker split**: the rule that a checker's model must
+  differ from the generator whose output it judges. Two instances:
+  Verify's checker vs. the implementer (`implementer_model` reads the last
+  `applying`/`checking` session entry) and Propose's critic vs. the
+  proposer (`proposer_model` reads the last `proposed` entry). Both go
+  through `checker_model` (`scripts/lib.sh`): resolve `standard`'s model,
+  escalate to `deep`'s on collision, error if both collapse to the
+  generator's id; `mechanical` is never a candidate. Exposed as
+  `scripts/run-change model verify|critic --store <slug> --name <change>`.
+- **Critique report**: `<store>/.orchestration/state/<change>.critique.md`,
+  written by the Propose critic, overwritten each round. Each finding
+  names the spec section or seam, the defect, and what would satisfy it.
+  Summarized in `last_critique_result` as `clean`, `findings:<n>`, or
+  `request`. Rounds counted in `propose_rounds`, cap 2, independent of
+  `fix_attempts`.
 - **Verify report**: `<store>/.orchestration/state/<change>.verify.md`,
   written by the Verify checker and overwritten each round (current
   record, like the state file). Each finding carries the proposal

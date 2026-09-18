@@ -19,6 +19,7 @@ usage: run-change <command> [args]
   gate run       --store <slug> --project <path> --mode quick|full
   model get      --store <slug> --tier mechanical|standard|deep
   model verify   --store <slug> --name <change>
+  model critic   --store <slug> --name <change>
   merge-lane run --store <slug> --project <path> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
   session append --store <slug> --name <change> key value [key value ...]
@@ -110,6 +111,12 @@ cmd_model_verify() {
   verify_model "$STORE" "$NAME"
 }
 
+cmd_model_critic() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  critic_model "$STORE" "$NAME"
+}
+
 cmd_merge_lane_run() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
@@ -144,6 +151,8 @@ cmd_state_init() {
   cat > "$f" <<EOF
 name: $NAME
 phase: proposed
+propose_rounds: 0
+last_critique_result: ""
 fix_attempts: 0
 last_gate_result: ""
 last_verify_result: ""
@@ -230,6 +239,7 @@ case "$group $sub" in
   "gate run") cmd_gate_run "$@" ;;
   "model get") cmd_model_get "$@" ;;
   "model verify") cmd_model_verify "$@" ;;
+  "model critic") cmd_model_critic "$@" ;;
   "merge-lane run") cmd_merge_lane_run "$@" ;;
   "state init") cmd_state_init "$@" ;;
   "state get") cmd_state_get "$@" ;;

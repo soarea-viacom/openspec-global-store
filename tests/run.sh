@@ -116,6 +116,16 @@ EOF
 $RC session append --store teststore --name feat-verify role worker phase applying tier deep model claude-opus-5-custom transcript_id t2
 check_out "model verify errors when every tier collapses" "no model distinct" bash -c "$RC model verify --store teststore --name feat-verify 2>&1; true"
 
+# generator/checker split at Propose: critic must differ from the proposer
+$RC state init --store teststore --name feat-critic
+check_out "state init has propose_rounds" "propose_rounds: 0" $RC state get --store teststore --name feat-critic
+$RC session append --store teststore --name feat-critic role worker phase proposed tier deep model claude-opus-5-custom transcript_id t1
+check_out "model critic errors when standard collides with proposer and deep is the same" "no model distinct from proposer" bash -c "$RC model critic --store teststore --name feat-critic 2>&1; true"
+$RC session append --store teststore --name feat-critic role worker phase proposed tier deep model some-other-model transcript_id t2
+check_out "model critic uses standard when distinct from proposer" "claude-opus-5-custom" $RC model critic --store teststore --name feat-critic
+$RC session append --store teststore --name feat-critic role worker phase applying tier standard model claude-opus-5-custom transcript_id t3
+check_out "model critic ignores non-proposed entries" "claude-opus-5-custom" $RC model critic --store teststore --name feat-critic
+
 # single rule: a project containing openspec/ is refused outright
 mkdir "$PROJECT/openspec"
 check_out "slot acquire refuses project with openspec/" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"

@@ -157,32 +157,46 @@ session_append() {
   echo "$line" >> "$f"
 }
 
-# implementer_model <store-slug> <change-name> -> the model id of the most
-# recent phase=applying or phase=checking entry (the code that's currently
-# on the branch), empty if the change has no such entry yet.
-implementer_model() {
+# last_model_for_phases <store-slug> <change-name> <phase-regex> -> the
+# model id of the most recent session entry whose phase matches, empty if
+# none. The session log is the only record of who wrote what.
+last_model_for_phases() {
   local f; f="$(session_log_path "$1" "$2")"
   [ -f "$f" ] || return 0
-  grep -E 'phase=(applying|checking)' "$f" 2>/dev/null | tail -n1 \
+  grep -E "phase=($3)" "$f" 2>/dev/null | tail -n1 \
     | grep -o 'model=[^ ]*' | cut -d= -f2 || true
 }
 
-# verify_model <store-slug> <change-name> -> a model id guaranteed distinct
-# from implementer_model, for the generator/checker split at the Verify
-# step. Verify's own baseline tier is `standard` (see Model/effort
-# routing); if that resolves to the same model that wrote the code,
-# escalate to `deep` rather than let the same model review its own work.
-# Errors if every tier collapses to one model (a store misconfiguration).
-verify_model() {
-  local slug="$1" name="$2"
-  local impl; impl="$(implementer_model "$slug" "$name")"
+# implementer_model <store-slug> <change-name> -> model of the most recent
+# applying/checking entry (the code currently on the branch).
+implementer_model() { last_model_for_phases "$1" "$2" 'applying|checking'; }
+
+# proposer_model <store-slug> <change-name> -> model of the most recent
+# proposed entry (whoever drafted the current delta spec + seam list).
+proposer_model() { last_model_for_phases "$1" "$2" 'proposed'; }
+
+# checker_model <store-slug> <generator-model> <label> -> a model id
+# guaranteed distinct from the generator's, for the generator/checker split.
+# Baseline tier is `standard`; on collision escalate to `deep` rather than
+# let a model review its own work. `mechanical` is never a candidate: too
+# weak to judge a spec or a diff against one. Errors if standard and deep
+# collapse to the generator's model (a store misconfiguration).
+checker_model() {
+  local slug="$1" gen="$2" label="$3"
   local candidate; candidate="$(model_for_tier "$slug" standard)"
-  if [ -n "$impl" ] && [ "$candidate" = "$impl" ]; then
+  if [ -n "$gen" ] && [ "$candidate" = "$gen" ]; then
     candidate="$(model_for_tier "$slug" deep)"
   fi
-  if [ -n "$impl" ] && [ "$candidate" = "$impl" ]; then
-    echo "no model distinct from implementer ($impl) available for verify — check orchestration.model_* in $(store_config "$slug")" >&2
+  if [ -n "$gen" ] && [ "$candidate" = "$gen" ]; then
+    echo "no model distinct from $label ($gen) available — check orchestration.model_* in $(store_config "$slug")" >&2
     return 1
   fi
   echo "$candidate"
 }
+
+# verify_model: checker for the Verify step, distinct from the implementer.
+verify_model() { checker_model "$1" "$(implementer_model "$1" "$2")" implementer; }
+
+# critic_model: checker for the Propose critique, distinct from the proposer.
+# Propose runs at deep, so this normally resolves to standard's model.
+critic_model() { checker_model "$1" "$(proposer_model "$1" "$2")" proposer; }

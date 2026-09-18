@@ -44,6 +44,13 @@ check_out() { # check_out <desc> <expected-substring> <cmd...>
   case "$out" in *"$want"*) echo "ok   $desc" ;; *) echo "FAIL $desc (got: $out)"; fails=$((fails+1)) ;; esac
 }
 
+# syntax first: a parse error would make every check below fail for the
+# same reason, so stop here instead of drowning it in noise.
+check "run-change parses" bash -n scripts/run-change
+check "lib.sh parses" bash -n scripts/lib.sh
+check "run.sh parses" bash -n tests/run.sh
+[ "$fails" -eq 0 ] || { echo "syntax errors — not running behavior tests"; exit 1; }
+
 # state
 check "state init creates file" $RC state init --store teststore --name feat-a
 check_out "state get returns phase" "phase: proposed" $RC state get --store teststore --name feat-a

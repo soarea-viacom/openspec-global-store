@@ -43,20 +43,29 @@
 - **Critique report**: `<store>/.orchestration/state/<change>.critique.md`,
   written by the Propose critic, overwritten each round. Each finding
   names the spec section or seam, the defect, and what would satisfy it.
-  Summarized in `last_critique_result` as `clean`, `findings:<n>`, or
-  `request`. Rounds counted in `propose_rounds`, cap 2, independent of
+  Summarized in `last_critique_result` as `clean`, `warnings:<m>`,
+  `blocking:<n>`, or `request`; only `blocking` starts a round. Rounds counted in `propose_rounds`, cap 2, independent of
   `fix_attempts`.
 - **Verify report**: `<store>/.orchestration/state/<change>.verify.md`,
   written by the Verify checker and overwritten each round (current
   record, like the state file). Each finding carries the proposal
   requirement, `file:line`, the defect, and what would satisfy it.
   Summarized in the state field `last_verify_result` as `clean`,
-  `findings:<n>`, or `spec`. The sole input a fix round receives from
+  `warnings:<m>`, `blocking:<n>`, or `spec`; only `blocking` starts a
+  fix round. The sole input a fix round receives from
   Verify — the fixer never sees the checker's transcript.
 - **Fix round**: one bounded correction pass, triggered by either a red
-  full gate or a non-clean verify report. Both draw on the same
+  full gate or a `blocking` verify report. Both draw on the same
   `fix_attempts` counter, capped at 3 per change; tier escalates by round
   number, then Gate 1.
+- **Convergence test**: a checker round converges only if no finding the
+  prior report marked closed reappears and the blocking count strictly
+  falls. A round that fails it gates to the human immediately, ignoring
+  remaining budget. Applies to fix rounds and critique rounds alike (see
+  **Checker loops** in AUTONOMOUS-ORCHESTRATION.md).
+- **Pass line**: Verify passes on full gate green plus zero `blocking`
+  findings; critique passes on zero `blocking` findings. `warning`
+  findings get one mechanical sweep and never start a round.
 - **Gate**: the project's quick or full check command
   (`orchestration.gate_quick` / `gate_full` in the *store's*
   `openspec/config.yaml` — single rule: a target project must not contain

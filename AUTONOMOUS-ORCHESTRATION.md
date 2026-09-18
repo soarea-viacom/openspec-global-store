@@ -106,21 +106,23 @@ append`, never edited after the fact.
 
    The critic writes a **critique report** to
    `<store>/.orchestration/state/<name>.critique.md` (overwritten each
-   round) and sets `last_critique_result`:
-   - `clean` — commit the spec and seam list on the branch, continue.
-   - `findings:<n>` — each finding names the spec section or seam, the
-     defect, and what would satisfy it. The proposer (same `deep` tier)
-     revises only what the findings name, logs another `proposed` entry,
-     and the critic reruns with the prior report, stating per finding
-     whether it is closed. `propose_rounds` counts these; cap 2, separate
-     from `fix_attempts`. Still not clean → **Gate 1** with the latest
-     report and draft: the request is cheaper to clarify now than to build
-     wrong.
+   round) and sets `last_critique_result` per the **Checker loops** rules
+   below — severity, pass line, convergence, and budget are defined once
+   there:
+   - `clean` or `warnings:<m>` — pass. Warnings are fixed in place at the
+     mechanical tier, no re-critique. Commit the spec and seam list on the
+     branch, continue.
+   - `blocking:<n>` — the proposer (same `deep` tier) revises only what the
+     findings name, logs another `proposed` entry, and the critic reruns
+     with the prior report. `propose_rounds` counts these, cap 2. Out of
+     rounds or not converging → **Gate 1** with the latest report and
+     draft: the request is cheaper to clarify now than to build wrong.
    - `request` — the originating request is itself contradictory or too
      ambiguous to draft against. → **Gate 1** immediately.
 
    This is the one place autonomous mode may ask a human before code
-   exists.
+   exists. The same critique, same standards where they apply, runs on
+   every other deep-tier artifact — see **Critique beyond the spec** below.
 4. **Apply** — implement in dispatch groups, one per seam from the Propose
    step's seam list (see model/effort tiers below). Before fanning groups
    out, run the disjoint-files check below; a change too small to have
@@ -140,22 +142,22 @@ append`, never edited after the fact.
    judges whether the code satisfies the proposal. It never sees the
    implementer's transcript. It writes a **verify report** to
    `<store>/.orchestration/state/<name>.verify.md`, overwritten each
-   round, and sets `last_verify_result`:
-   - `clean` — no findings. Continue to Archive.
-   - `findings:<n>` — the code falls short of the proposal. Every finding
-     names the proposal requirement, the `file:line`, what is wrong, and
-     what would satisfy it; no finding without all four. The report is the
-     input to a **fix round** (below): set `phase: checking`, fix, rerun
-     step 5, then re-run Verify. On re-verify the checker also gets the
-     previous report and must state per finding whether it is closed.
-     Out of rounds → **Gate 1** with the latest report.
+   round, and sets `last_verify_result` per the **Checker loops** rules
+   below. Every finding names the proposal requirement, the `file:line`,
+   what is wrong, what would satisfy it, and a severity; no finding without
+   all five.
+   - `clean` or `warnings:<m>` — pass. Warnings (human-narrative comments,
+     oversized artifacts, the hard rule at the end of this doc) get one
+     mechanical-tier sweep and a quick gate, no re-verify, not a round.
+     Continue to Archive.
+   - `blocking:<n>` — the code falls short of a proposal requirement. The
+     report is the input to a **fix round** (below): set `phase: checking`,
+     fix, rerun step 5, then re-run Verify. Out of rounds or not converging
+     → **Gate 1** with the latest report.
    - `spec` — the proposal itself is wrong, ambiguous, or silent on what the
      code does, so no code change can close the finding. → **Gate 1**
      immediately: the human owns the spec in autonomous mode, and a fix
      round that edits the proposal would be the code grading itself.
-
-   Human-narrative comments and oversized artifacts are findings too,
-   routed like any other but triaged to the mechanical tier.
 7. **Archive** — finalize artifacts (`openspec-orchestrator` archive phase),
    commit on the branch.
 8. **Merge lane** — `scripts/run-change merge-lane run --store <slug>
@@ -258,6 +260,62 @@ Every lifecycle commit (on the target project) carries trailers: `Change:`,
 squash-merge commit, so `git log` in the target project reconstructs
 provenance even after the change's own artifacts are archived.
 
+## Checker loops
+
+Both generator/checker pairs — proposer/critic and implementer/Verify —
+follow the same four rules. They are what keeps two agents from grading
+each other forever.
+
+- **Severity is binary.** Every finding is `blocking` (the output fails
+  the standard it is judged against: a requirement the code does not meet,
+  a seam that names a wrong file, a part of the request the spec skips) or
+  `warning` (the output is correct but violates the hard rule at the end
+  of this doc). The checker assigns it; the fixer does not reclassify.
+- **Pass is defined up front.** A change passes Verify when the full gate
+  is green and the report has zero blocking findings. A draft passes
+  critique when the report has zero blocking findings. Warnings never
+  block a pass and never start a round: they get one mechanical sweep and
+  move on. Without this line a loop spends its whole budget on comment
+  style.
+- **Budget, and convergence inside it.** Fix rounds cap at 3 per change,
+  critique rounds at 2, then Gate 1. But the budget is a ceiling, not a
+  target: a round is *converging* only if no finding the prior report
+  marked closed reappears, and the blocking count is strictly lower than
+  the prior round's. Either failing means the pair is not moving toward
+  agreement — gate immediately with both reports, regardless of rounds
+  left. Spending the remainder would only produce a third report saying
+  the same thing.
+- **Unconditional, by design.** The pattern is usually reserved for
+  changes worth a senior review. Here it runs on every change, because in
+  autonomous mode nobody reads the diff or the spec before Gate 2 — the
+  checker *is* the senior review, not an addition to it. Cost is controlled
+  by the tier (a `standard` model, one pass when the output is right) and
+  by the pass line above, not by skipping the check.
+
+### Critique beyond the spec
+
+Wherever a deep-tier model generates an artifact, a distinct model
+critiques it before anything is built on it. The delta spec is one case;
+the others:
+
+- **Initiative records** (`<store>/.orchestration/initiatives/<name>.yaml`).
+  Standards: the children together cover the request and nothing more;
+  `depends_on` is acyclic and every edge is real (the child cannot start
+  without it); no two children that could run concurrently share a file
+  in their seam lists — a miss here surfaces as a merge conflict several
+  hours later; each child is small enough to be a single change. Log the
+  author's session entry under the initiative's name (`session append
+  --name <initiative> phase proposed`), so `model critic --name
+  <initiative>` resolves a distinct model without new machinery. Rounds
+  are counted in the report header; an initiative has no state file.
+- **Design docs** written at the deep tier during Propose. Same critic,
+  logged under the owning change, standards: fidelity to the request,
+  every decision names the alternative it rejected and why, nothing the
+  spec will not need.
+
+Same fresh-context rule, same report shape (what is wrong, what would
+satisfy it, severity), same 2-round cap and convergence test.
+
 ## Model/effort routing
 
 Pick a tier per task, not per session:
@@ -312,7 +370,8 @@ One loop serves both a red full gate (step 5) and a non-clean Verify
 verify report — never the checker's transcript — and changes only what the
 findings name. `fix_attempts` counts both kinds against the same cap of 3
 per change; a change does not get three rounds for tests and three more
-for review. Escalation is by round number: round 1 mechanical/standard by
+for review, and a round that fails the convergence test under **Checker
+loops** gates at once. Escalation is by round number: round 1 mechanical/standard by
 triage, round 2 standard, round 3 deep, then Gate 1. Each fixer logs a
 session entry with `phase checking` before Verify reruns, so `model verify`
 sees the fixer as the latest implementer and picks a different model to

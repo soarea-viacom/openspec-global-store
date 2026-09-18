@@ -94,21 +94,38 @@ append`, never edited after the fact.
 5. **Check** — run the project's *full* gate
    (`orchestration.gate_full`, parallelized if the project's test runner
    supports it).
-   - Red: auto-fix, bounded at 3 rounds (tier escalation: round 1
-     mechanical/standard by triage, round 2 standard, round 3 deep). Still
-     red after 3 → **Gate 1**: ask the human with the failure.
+   - Red: a **fix round** (see below). Out of rounds → **Gate 1**: ask the
+     human with the failure.
    - Green: continue to verify.
-6. **Verify** — check the implementation matches the proposal, using a
-   model distinct from whichever one implemented it (`scripts/run-change
-   model verify --store <slug> --name <name>` — see the generator/checker
-   split under Model/effort routing). A critical finding → **Gate 1**.
-   Otherwise continue.
+6. **Verify** — a checker with a fresh context and a model distinct from
+   whichever one last wrote code for the change (`scripts/run-change model
+   verify --store <slug> --name <name>` — see the generator/checker split
+   under Model/effort routing) reads the proposal and the branch diff and
+   judges whether the code satisfies the proposal. It never sees the
+   implementer's transcript. It writes a **verify report** to
+   `<store>/.orchestration/state/<name>.verify.md`, overwritten each
+   round, and sets `last_verify_result`:
+   - `clean` — no findings. Continue to Archive.
+   - `findings:<n>` — the code falls short of the proposal. Every finding
+     names the proposal requirement, the `file:line`, what is wrong, and
+     what would satisfy it; no finding without all four. The report is the
+     input to a **fix round** (below): set `phase: checking`, fix, rerun
+     step 5, then re-run Verify. On re-verify the checker also gets the
+     previous report and must state per finding whether it is closed.
+     Out of rounds → **Gate 1** with the latest report.
+   - `spec` — the proposal itself is wrong, ambiguous, or silent on what the
+     code does, so no code change can close the finding. → **Gate 1**
+     immediately: the human owns the spec in autonomous mode, and a fix
+     round that edits the proposal would be the code grading itself.
+
+   Human-narrative comments and oversized artifacts are findings too,
+   routed like any other but triaged to the mechanical tier.
 7. **Archive** — finalize artifacts (`openspec-orchestrator` archive phase),
    commit on the branch.
 8. **Merge lane** — `scripts/run-change merge-lane run --store <slug>
    --project <path> --name <name>`: acquire the project's single
    merge lock, merge current trunk into the branch, rerun the full gate.
-   Red → back to the auto-fix step above. Green → **Gate 2**: ask the human
+   Red → a fix round (same budget). Green → **Gate 2**: ask the human
    with a summary (diffstat, gate log, verify report).
 9. **Merged** — on approval, squash-merge into trunk (one commit, with the
    trailers below), remove the workspace, release the slot.
@@ -224,8 +241,9 @@ Pick a tier per task, not per session:
 Specify/Plan (Propose) and Execute (Apply) are handled by the tiers above.
 Verify is different: it isn't sized by how hard the check is, but by
 whether it's independent of whoever wrote the code. A model is a weak
-reviewer of its own output, so Verify never reuses the implementer's
-model — `scripts/run-change model verify --store <slug> --name <change>`
+reviewer of its own output, so Verify runs in a fresh context (proposal,
+diff, prior report — not the implementer's or fixer's transcript) and
+never reuses the implementer's model — `scripts/run-change model verify --store <slug> --name <change>`
 resolves `standard`'s model, and if that collides with the model the last
 `applying`/`checking` session-history entry recorded, escalates to
 `deep`'s model instead. Use `model verify`'s output for the Verify step,
@@ -246,9 +264,21 @@ set, else the engine's default table (`model_for_tier` in
 `none` runs no model — it's plain bash bookkeeping (`scripts/run-change`
 itself), never a task dispatched to an agent.
 
-Pick the smallest tier that can be wrong safely. Fix-loop escalates
-mechanical/standard → standard → deep → Gate 1. A worker that fails its own
-check once retries one tier up before it counts as a fix round. Record
+Pick the smallest tier that can be wrong safely.
+
+### Fix rounds
+
+One loop serves both a red full gate (step 5) and a non-clean Verify
+(step 6): a fixer at the implementer tier receives the failure or the
+verify report — never the checker's transcript — and changes only what the
+findings name. `fix_attempts` counts both kinds against the same cap of 3
+per change; a change does not get three rounds for tests and three more
+for review. Escalation is by round number: round 1 mechanical/standard by
+triage, round 2 standard, round 3 deep, then Gate 1. Each fixer logs a
+session entry with `phase checking` before Verify reruns, so `model verify`
+sees the fixer as the latest implementer and picks a different model to
+re-check its work. A worker that fails its own check once retries one tier
+up before it counts as a fix round. Record
 `model` and `tier` on every session-history entry — resolve the model with
 `model get` first, then `scripts/run-change session append --store <slug>
 --name <change> role worker phase applying tier mechanical model
@@ -267,5 +297,5 @@ column, to catch when a change burned expensive calls on mechanical work.
   no abstraction with a single caller.
 - Keep it short: the shortest artifact, rule, commit message, gate summary,
   or reply that is complete.
-- Verify/triage flags human-narrative comments and oversized artifacts as a
-  warning, fixed at the mechanical tier.
+- Verify reports human-narrative comments and oversized artifacts as
+  findings; the fix round for them runs at the mechanical tier.

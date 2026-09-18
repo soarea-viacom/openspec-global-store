@@ -38,6 +38,17 @@
   `standard`'s model and escalates to `deep`'s if that collides, erroring
   if every tier still resolves to the same id. Exposed as `scripts/
   run-change model verify --store <slug> --name <change>`.
+- **Verify report**: `<store>/.orchestration/state/<change>.verify.md`,
+  written by the Verify checker and overwritten each round (current
+  record, like the state file). Each finding carries the proposal
+  requirement, `file:line`, the defect, and what would satisfy it.
+  Summarized in the state field `last_verify_result` as `clean`,
+  `findings:<n>`, or `spec`. The sole input a fix round receives from
+  Verify — the fixer never sees the checker's transcript.
+- **Fix round**: one bounded correction pass, triggered by either a red
+  full gate or a non-clean verify report. Both draw on the same
+  `fix_attempts` counter, capped at 3 per change; tier escalates by round
+  number, then Gate 1.
 - **Gate**: the project's quick or full check command
   (`orchestration.gate_quick` / `gate_full` in the *store's*
   `openspec/config.yaml` — single rule: a target project must not contain

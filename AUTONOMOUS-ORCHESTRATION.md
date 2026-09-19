@@ -1,12 +1,12 @@
 # Autonomous change orchestration
 
-Rule document for running OpenSpec changes autonomously instead of via three
-manually-triggered `/sdd:propose` / `/sdd:apply` / `/sdd:archive` calls.
-Read this before starting a change if the human asked for autonomous
-execution (e.g. "just get this done", "run it end to end") rather than
-step-by-step review. The plain manual mode in [SKILL.md](SKILL.md) stays
-available and is the default when the human wants to review after each
-phase.
+Rule document for running OpenSpec changes. It is the **only** execution
+mode of the `openspec-orchestrator` skill: whenever the skill is invoked on
+a change, read this doc and run the three phases in [SKILL.md](SKILL.md) end
+to end, asking the human only if something is wrong. The human never has to
+say "run autonomously" — that is always assumed, and there is no
+step-by-step alternative to fall back to. Stopping between phases to wait
+for approval is a bug, not a mode.
 
 The reader of this doc, the state files, and the scripts it drives is
 another agent in a later session, not a human. Comments and state exist to

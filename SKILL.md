@@ -1,6 +1,6 @@
 ---
 name: openspec-orchestrator
-description: Spec-driven development workflow (propose a delta spec before touching code, implement against the approved proposal with tests, archive into the living spec) with all OpenSpec artifacts routed to an external store — the target project's directory and git history are never touched by OpenSpec. Use when the user wants to add/change a feature under spec control in a project without an openspec/ folder, invokes /sdd:explore, /sdd:propose, /sdd:apply, or /sdd:archive, or asks to orchestrate/route OpenSpec to an external store.
+description: Spec-driven development workflow (propose a delta spec before touching code, implement against the approved proposal with tests, archive into the living spec) with all OpenSpec artifacts routed to an external store — the target project's directory and git history are never touched by OpenSpec. Always runs autonomously — the whole change end to end, asking the human only when something is wrong; there is no step-by-step mode. Use when the user wants to add/change a feature under spec control in a project without an openspec/ folder, invokes /sdd:explore for read-only discovery, or asks to orchestrate/route OpenSpec to an external store.
 ---
 
 # OpenSpec Orchestrator
@@ -45,29 +45,40 @@ No mapping file is kept anywhere — the store id is recomputed the same way eve
 
 ## Step 3 — Execution workflow (OpenSpec 3-Phase Engine, routed to the store)
 
+These three phases are the shape of every change. They are never run one at a time with a review stop in between — see **Autonomous only** below for how they are driven.
+
 Every OpenSpec CLI call below gets `--store <slug>` appended — e.g. `openspec instructions --store <slug>`, `openspec new change <name> --store <slug>`, `openspec status/validate/show/list --store <slug>`, `openspec archive <name> --store <slug>`. The "apply" phase's actual code edits still happen in the project directory as normal (Read/Edit/Write on project files) — only the OpenSpec artifacts themselves (proposals, deltas, specs, tasks) are written under `~/openspec-stores/<slug>/`, never under the project.
 
-- **Phase 1: Explore & Propose (`/sdd:propose`)**
+- **Phase 1: Explore & Propose**
   - Read active code boundaries and structural modules.
   - Draft explicit architectural intent into a temporary delta spec.
   - Predict potential side effects or breaking changes in downstream dependencies.
-- **Phase 2: Active Implementation (`/sdd:apply`)**
+- **Phase 2: Active Implementation**
   - Write modular, self-documenting code that maps 1:1 with the finalized proposal.
   - Implement accompanying integration or unit tests simultaneously.
-- **Phase 3: Final Consolidation (`/sdd:archive`)**
+- **Phase 3: Final Consolidation**
   - Verify syntax execution and run the testing suite locally, plus the project's dead-code pass (`knip` for JS/TS, `vulture` for Python, or equivalent) — a passing suite cannot see an abandoned helper or an unused dependency this change left behind; delete what the pass names before archiving.
   - Cleanly merge finalized changes back into the store's living specs.
 
-## Autonomous mode
+## Autonomous only
 
-The three phases above are the manual mode: a human triggers each command
-and reviews between them. When the human asks for autonomous execution
-("just get this done end to end", "run it and only ask me if something's
-wrong") instead of step-by-step review, follow
-[AUTONOMOUS-ORCHESTRATION.md](AUTONOMOUS-ORCHESTRATION.md) instead — it
-runs the same three phases plus gates, an auto-fix loop, and a merge lane,
-asking the human at most twice per change. Manual mode stays the default
-whenever the human wants to review after each phase.
+This skill has exactly one execution mode. Invoking it on a change means:
+run all three phases end to end, with gates, the auto-fix loop and the
+merge lane, and ask the human only if something is wrong. Follow
+[AUTONOMOUS-ORCHESTRATION.md](AUTONOMOUS-ORCHESTRATION.md) for the exact
+procedure; it asks the human at most twice per change, and only when
+something is blocked or failing — never for routine approval between
+phases.
+
+There is no step-by-step or "review after each phase" mode, and none may be
+improvised: do not stop after a proposal, an implementation or an archive
+to wait for a go-ahead, even if the request is phrased as a single phase
+("just draft the proposal", "only apply"). Treat such a request as the
+whole change and run it; if the human genuinely wants to stop early, they
+say so and the change is left `blocked` per the orchestration doc. The
+only command that is not a full run is `/sdd:explore`, which is read-only
+discovery and writes nothing — it precedes a change, it is not a phase of
+one.
 
 ## Optional convenience
 

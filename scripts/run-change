@@ -109,6 +109,7 @@ cmd_workspace_create() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
   require_no_project_openspec "$PROJECT"
+  ensure_project_git "$PROJECT"
   local branch="change/$NAME"
   local wt_path; wt_path="$(workspace_path "$STORE" "$NAME")"
   mkdir -p "$(dirname "$wt_path")"

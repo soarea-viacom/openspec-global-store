@@ -43,6 +43,25 @@ require_no_project_openspec() {
   }
 }
 
+# ensure_project_git <project>: the branch/worktree model needs a repo with
+# a commit on a trunk. An empty folder or a folder of un-tracked files (the
+# first idea dropped into a new project) gets `git init -b main` and an
+# initial commit of whatever is there. The only write under the project
+# root the engine ever makes — .git/ is project infrastructure, not an
+# OpenSpec artifact. Idempotent: an existing repo with a commit is untouched.
+ensure_project_git() {
+  local project="$1"
+  if ! git -C "$project" rev-parse --git-dir >/dev/null 2>&1; then
+    git init -q -b main "$project"
+    echo "initialized git repo in $project (branch main)" >&2
+  fi
+  if ! git -C "$project" rev-parse --verify -q HEAD >/dev/null; then
+    git -C "$project" add -A
+    git -C "$project" commit -q --allow-empty -m "Initial commit"
+    echo "created initial commit in $project" >&2
+  fi
+}
+
 # concurrency_cap <store-slug> -> N from the store's openspec/config.yaml
 # orchestration.concurrency, default 1.
 concurrency_cap() {

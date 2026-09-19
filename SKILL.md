@@ -22,8 +22,9 @@ Run these checks in order, before resolving a slug or creating any store. Each c
 1. **Hard refusal first:** if `./openspec/` exists in the project, stop immediately — the project has a traditional OpenSpec root; tell the user to use its own `/opsx:*` commands instead (see Guardrails). Check this before anything else so no store is ever created for a refused project.
 2. **OpenSpec CLI:** verify `openspec` is on PATH and supports the commands this flow needs — `openspec store --help` and `openspec doctor --help` must both succeed. If the CLI is missing or too old, offer to install/upgrade it globally (`npm i -g openspec`); do not add it to the project's `package.json`.
 3. **Sane working directory:** verify the cwd is a real target project — not a registered store itself and not under `~/openspec-stores/`. Refuse to orchestrate a store-for-a-store.
+4. **Git repository:** the project must be a git repo with at least one commit on a trunk branch — the store's slug falls back to the directory name without a remote (Step 1), but every change branch, worktree, gate and merge in this skill hangs off the project's own git history and cannot exist without it. If `git -C . rev-parse --git-dir` fails, run `git init -b main` in the project; if the repo then has no commit (fresh init, or an empty folder holding a first idea), stage whatever is there and make the initial commit (`git add -A && git commit --allow-empty -m "Initial commit"`). Do this **before any work** — before the store is resolved, before a proposal is drafted — so the first idea a user brings to an empty folder lands in a repo that can carry a `change/<name>` branch. This is the one write under the project root this skill makes: `.git/` is the project's own infrastructure, not an OpenSpec artifact, and the no-pollution rule is about artifacts. `scripts/run-change workspace create` performs the same init deterministically (`ensure_project_git` in `scripts/lib.sh`) so the engine never fails on a missing repo either.
 
-Only when all three pass, continue to Step 1.
+Only when all four pass, continue to Step 1.
 
 ## Step 1 — Resolve project identity (deterministic, no state file)
 
@@ -76,7 +77,7 @@ whenever the human wants to review after each phase.
 
 - Never run `openspec init` in a project.
 - Missing prerequisites are installed globally (user-level) only — never as project dependencies, project `.claude/` entries, or any other file in the target repository.
-- Never write to any path under the project root for OpenSpec purposes.
+- Never write to any path under the project root for OpenSpec purposes. The sole exception is `git init` plus an initial commit when the project has no repo or no commit yet (Step 0, check 4) — that is project infrastructure the branch/worktree model requires, not an artifact.
 - Never omit `--store <slug>` on an OpenSpec CLI call once a store is resolved — a bare command silently falls back to the current directory as root, which would put artifacts in the wrong place.
 - **Hard refusal:** if the project contains an `openspec/` folder (previously `init`ed the traditional way), this skill must not run at all — checked first thing in Step 0. Tell the user the project has a traditional OpenSpec root with its own generated `/opsx:*` commands, and to use those; do not proceed, do not work around it. `scripts/run-change` in the engine enforces the same rule deterministically.
 - Autonomous-orchestration config (`orchestration.concurrency`, `gate_quick`, `gate_full` — which must include the project's dead-code pass, e.g. `npm test && npx knip` — `model_mechanical`, `model_standard`, `model_deep`) goes in the **store's** `openspec/config.yaml` (`~/openspec-stores/<slug>/openspec/config.yaml`) — never in the project. This is the single location the engine reads. The `model_*` keys are optional overrides; `scripts/run-change model get` falls back to the engine's default tier→model table when a store doesn't set them.

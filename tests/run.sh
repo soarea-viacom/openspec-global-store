@@ -278,5 +278,23 @@ $RC workspace remove --store teststore --project "$NOTRUNK" --name feat-nt
 check "merge lock released" test ! -d "$STORE/.orchestration/merge.lock"
 $RC workspace remove --store teststore --project "$PROJECT" --name feat-a
 
+# a project that is not a repo yet gets initialized before the workspace is cut:
+# empty folder -> git init on main + empty initial commit
+EMPTY="$TMP/empty-project"
+mkdir -p "$EMPTY"
+check "workspace create on an empty folder succeeds" $RC workspace create --store teststore --project "$EMPTY" --name feat-empty
+check "empty folder became a repo on main" test "$(git -C "$EMPTY" symbolic-ref --short HEAD)" = main
+check "empty folder has an initial commit" git -C "$EMPTY" rev-parse --verify -q HEAD
+check "change branch exists in the new repo" git -C "$EMPTY" rev-parse --verify -q refs/heads/change/feat-empty
+$RC workspace remove --store teststore --project "$EMPTY" --name feat-empty
+# ... and un-tracked files (a first idea already written) land in that initial commit
+IDEA="$TMP/idea-project"
+mkdir -p "$IDEA" && echo idea > "$IDEA/notes.md"
+$RC workspace create --store teststore --project "$IDEA" --name feat-idea >/dev/null 2>&1
+check "existing files are in the initial commit" git -C "$IDEA" cat-file -e HEAD:notes.md
+check "worktree of the new repo carries those files" test -f "$STORE/.orchestration/workspaces/feat-idea/notes.md"
+check "init is idempotent on a repo that already has a commit" test "$(git -C "$IDEA" rev-list --count main)" = 1
+$RC workspace remove --store teststore --project "$IDEA" --name feat-idea
+
 echo
 [ "$fails" -eq 0 ] && echo "all tests passed" || { echo "$fails test(s) failed"; exit 1; }

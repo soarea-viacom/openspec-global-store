@@ -78,7 +78,11 @@ append`, never edited after the fact.
 2. **Workspace** — `scripts/run-change workspace create --store <slug>
    --project <path> --name <name>`: branch `change/<name>` off the project's trunk,
    worktree checked out under the store's `.orchestration/workspaces/`,
-   dependencies synced. Never dispatch work against the project's main
+   dependencies synced. A project with no repo or no commit yet (an empty
+   folder the first idea landed in) is initialized first — `git init -b
+   main` and an initial commit of whatever is there — by the same command
+   (`ensure_project_git`), mirroring Step 0 check 4 of SKILL.md; nothing
+   downstream ever sees a project without a trunk. Never dispatch work against the project's main
    checkout — and every gate (`gate run ... --name <name>`) runs in the
    worktree, never in the main checkout, which is trunk and says nothing
    about the branch.

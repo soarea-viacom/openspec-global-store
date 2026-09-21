@@ -20,6 +20,7 @@ usage: run-change <command> [args]
   model get      --store <slug> --tier mechanical|standard|deep
   model verify   --store <slug> --name <change>
   model critic   --store <slug> --name <change>
+  stage-skills get --store <slug> --stage plan|critic|test
   merge-lane run --store <slug> --project <path> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
   initiative init|get|set --store <slug> --name <initiative> [key value ...]
@@ -34,8 +35,8 @@ EOF
 }
 
 parse_opts() {
-  # Fills STORE, PROJECT, NAME, MODE, SLOT, TIER from remaining args.
-  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""; CHILD=""; COMMIT=""; WORKER=""
+  # Fills STORE, PROJECT, NAME, MODE, SLOT, TIER, STAGE from remaining args.
+  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""; CHILD=""; COMMIT=""; WORKER=""; STAGE=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --worker) WORKER="$2"; shift 2 ;;
@@ -47,6 +48,7 @@ parse_opts() {
       --mode) MODE="$2"; shift 2 ;;
       --slot) SLOT="$2"; shift 2 ;;
       --tier) TIER="$2"; shift 2 ;;
+      --stage) STAGE="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -57,7 +59,7 @@ parse_opts() {
 kv_args() {
   PAIRS=()
   while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot|--tier|--child|--commit|--worker) shift 2 ;; *) PAIRS+=("$1"); shift ;; esac
+    case "$1" in --store|--project|--name|--mode|--slot|--tier|--stage|--child|--commit|--worker) shift 2 ;; *) PAIRS+=("$1"); shift ;; esac
   done
 }
 
@@ -156,6 +158,12 @@ cmd_model_critic() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
   critic_model "$STORE" "$NAME"
+}
+
+cmd_stage_skills_get() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$STAGE" ] || usage
+  stage_skills "$STORE" "$STAGE"
 }
 
 cmd_merge_lane_run() {
@@ -411,6 +419,7 @@ case "$group $sub" in
   "model get") cmd_model_get "$@" ;;
   "model verify") cmd_model_verify "$@" ;;
   "model critic") cmd_model_critic "$@" ;;
+  "stage-skills get") cmd_stage_skills_get "$@" ;;
   "merge-lane run") cmd_merge_lane_run "$@" ;;
   "state init") cmd_state_init "$@" ;;
   "state get") cmd_state_get "$@" ;;

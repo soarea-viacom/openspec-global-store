@@ -99,8 +99,10 @@ append`, never edited after the fact.
    about the branch.
 3. **Propose** — always runs at the `deep` tier (see Model/effort routing
    below), regardless of how small the change looks: a mistake here is the
-   most expensive one, because every later phase inherits it. Draft the
-   delta spec via the normal `openspec-orchestrator` propose phase, scoped
+   most expensive one, because every later phase inherits it — unless the
+   project mapped its own skill to `plan` (**Project-skill stage mapping**
+   under Model/effort routing), in which case that skill drafts instead.
+   Draft the delta spec via the normal `openspec-orchestrator` propose phase, scoped
    to the workspace, `--store <slug>`. Before drafting prose, sketch the
    **seams** the change touches:
    existing seams preferred over new ones, fewest possible (one is ideal),
@@ -118,7 +120,9 @@ append`, never edited after the fact.
    proposer's (`scripts/run-change model critic --store <slug> --name
    <name>`) reads the originating request, the draft delta spec, the seam
    list, and the codebase — never the proposer's transcript — and judges
-   the draft on five standards:
+   the draft on five standards. If the project mapped one or more skills to
+   `critic` (**Project-skill stage mapping**), each of them also reads the
+   same inputs and reports alongside this checker — not instead of it.
    - **Fidelity**: every part of the request is covered, nothing beyond it
      is added.
    - **Seams are real**: each named file exists, is where that behavior
@@ -179,7 +183,10 @@ append`, never edited after the fact.
    verify --store <slug> --name <name>` — see the generator/checker split
    under Model/effort routing) reads the proposal and the branch diff and
    judges whether the code satisfies the proposal. It never sees the
-   implementer's transcript. It writes a **verify report** to
+   implementer's transcript. If the project mapped one or more skills to
+   `test` (**Project-skill stage mapping**), each of them also reads the
+   proposal and diff and reports alongside this checker — not instead of
+   it. It writes a **verify report** to
    `<store>/.orchestration/state/<name>.verify.md`, overwritten each
    round, and sets `last_verify_result` per the **Checker loops** rules
    below. Every finding names the proposal requirement, the `file:line`,
@@ -489,6 +496,38 @@ set, else the engine's default table (`model_for_tier` in
 itself), never a task dispatched to an agent.
 
 Pick the smallest tier that can be wrong safely.
+
+### Project-skill stage mapping (Propose / critique / Verify)
+
+Before dispatching Propose, the critique step, or Verify at the tier/model above, check
+whether the project has named one of its own skills for that stage:
+`scripts/run-change stage-skills get --store <slug> --stage plan|critic|test`. Output is
+one skill name per line, empty if the project set nothing — see
+[`docs/proposals/skill-stage-mapping.md`](docs/proposals/skill-stage-mapping.md) for the
+full design and why the mapping lives only in the resolved root's `openspec/config.yaml`
+(`orchestration.stage_skills`), never in a skill's own frontmatter, and never behind any
+other switch:
+
+- **`plan`** — at most one name. If set, dispatch that skill (via the `Skill` tool, not a
+  bare model call) to draft the delta spec and seam list **instead of** the deep-tier
+  model — this *replaces* the default drafter, it does not add to it. If unset, Propose
+  runs exactly as described in Phases step 3: deep tier, no skill involved.
+- **`critic`** — zero or more names. If non-empty, dispatch every listed skill **in
+  addition to** the tier/model critic already described in Phases step 3 — never instead
+  of it. The critique step only passes if *none* of them — built-in or mapped — reports a
+  blocking finding; merge every mapped skill's findings into the one critique report,
+  each tagged with which skill produced it, same file, same `last_critique_result`
+  handling as today.
+- **`test`** — zero or more names. Same rule as `critic`, stacked on top of the tier/model
+  Verify checker described in Phases step 6, merged into the one verify report the same
+  way.
+
+Two things this mapping does not do, on purpose: it never disables the built-in
+checker for `critic`/`test` (a mapped skill is additional signal, not a replacement for
+the one check this engine can vouch for itself), and it never checks whether a mapped
+skill is safe to run unattended — if a project maps a skill that stops to interview a
+human, the change simply stalls in that phase, visible the same way any other broken step
+is, not something this engine detects in advance.
 
 ### Fix rounds
 

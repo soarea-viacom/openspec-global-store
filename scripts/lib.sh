@@ -127,6 +127,45 @@ model_for_tier() {
   esac
 }
 
+# stage_skills <store-slug> <stage> -> newline-separated project-skill names
+# mapped to that stage's orchestration.stage_skills entry, empty if unset.
+# `plan` is a bare scalar (`plan: project-spec-drafter`); `critic`/`test` are
+# a flow-style list (`critic: [project-code-review, other-skill]`) — this
+# only parses that one-line flow form, not YAML's multi-line block-list
+# style, matching the rest of this file's single-line awk-over-config
+# convention. See docs/proposals/skill-stage-mapping.md for the full design:
+# `plan`, if set, REPLACES the deep-tier drafter; `critic`/`test`, if
+# non-empty, STACK on top of the built-in tier/model checker — the caller
+# (never this function) is responsible for honoring that distinction and
+# for actually dispatching each name via the Skill tool.
+stage_skills() {
+  local slug="$1" stage="$2"
+  local cfg
+  cfg="$(store_config "$slug")"
+  [ -f "$cfg" ] || return 0
+  awk -v key="$stage" '
+    /^orchestration:/ { f=1; next }
+    f && /^[a-zA-Z]/ { exit }
+    f && /^  stage_skills:/ { g=1; next }
+    g && /^  [a-zA-Z]/ { exit }
+    g && $0 ~ "^    "key":" {
+      line = $0
+      sub("^    "key":[ ]*", "", line)
+      gsub(/^\[/, "", line); gsub(/\]$/, "", line)
+      gsub(/, */, "\n", line)
+      gsub(/^"|"$/, "", line)
+      n = split(line, parts, "\n")
+      for (i = 1; i <= n; i++) {
+        v = parts[i]
+        gsub(/^ +| +$/, "", v)
+        gsub(/^"|"$/, "", v)
+        if (v != "") print v
+      }
+      exit
+    }
+  ' "$cfg" 2>/dev/null || true
+}
+
 timestamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # State module: sole owner of the state-file YAML dialect (flat "key: value",

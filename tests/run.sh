@@ -141,6 +141,21 @@ cat >> "$STORE/openspec/config.yaml" <<'EOF'
 EOF
 check_out "model get honors store override" "claude-opus-5-custom" $RC model get --store teststore --tier deep
 
+# stage -> project skill(s) (docs/proposals/skill-stage-mapping.md)
+check_out "stage-skills get is empty when stage_skills is unset" "" $RC stage-skills get --store teststore --stage plan
+cat >> "$STORE/openspec/config.yaml" <<'EOF'
+  stage_skills:
+    plan: project-spec-drafter
+    critic: [project-code-review]
+    test: [project-test-skill, project-contract-checker]
+EOF
+check_out "stage-skills get returns the single plan skill" "project-spec-drafter" $RC stage-skills get --store teststore --stage plan
+check_out "stage-skills get returns a one-item critic list" "project-code-review" $RC stage-skills get --store teststore --stage critic
+out="$($RC stage-skills get --store teststore --stage test)"
+check "stage-skills get returns both test-stage skills" test "$out" = "project-test-skill
+project-contract-checker"
+check_out "stage-skills get is empty for an unmapped stage" "" $RC stage-skills get --store teststore --stage apply
+
 # generator/checker split: verify must use a model distinct from the implementer's
 check_out "model verify with no history uses standard default" "claude-sonnet-5" $RC model verify --store teststore --name feat-verify
 $RC session append --store teststore --name feat-verify role worker phase applying tier standard model claude-sonnet-5 transcript_id t1

@@ -1,7 +1,12 @@
 # Proposal: project-skill stage mapping (Propose / critique / Verify)
 
-**Status:** sketch — not adopted, not wired into `SKILL.md`, `AUTONOMOUS-ORCHESTRATION.md`,
-or any script. Supersedes and fully replaces the earlier
+**Status:** adopted — wired into
+[`AUTONOMOUS-ORCHESTRATION.md`](../../AUTONOMOUS-ORCHESTRATION.md) (Model/effort routing §
+"Project-skill stage mapping", plus pointers from Phases steps 3 and 6) and
+[`scripts/lib.sh`](../../scripts/lib.sh) (`stage_skills`) /
+[`scripts/run-change`](../../scripts/run-change) (`stage-skills get`), covered by
+[`tests/run.sh`](../../tests/run.sh). Those are the source of truth from here on; this doc
+stays as the design record. Supersedes and fully replaces the earlier
 `docs/proposals/skill-executor-routing.md` (deleted) — see **History** at the end for what
 changed and why.
 
@@ -150,9 +155,9 @@ one check the engine can vouch for" principle for `critic`/`test`.
 
 ## Relationship to existing docs
 
-If adopted, this would extend, not replace, the **Model/effort routing** section of
+This extends, not replaces, the **Model/effort routing** section of
 `AUTONOMOUS-ORCHESTRATION.md` and the `model_for_tier`/`checker_model` functions in
-`scripts/lib.sh`. No change is proposed here to `SKILL.md`'s Step 0–3 (preflight, root
-resolution, the 3-phase engine) or to the phase diagram in `README.md` — this sketch only
-touches *how* Propose's draft and the critic/Verify checks are produced, never *which*
-phases exist or *when* a human gate fires.
+`scripts/lib.sh`. No change was made to `SKILL.md`'s Step 0–3 (preflight, root resolution,
+the 3-phase engine) or to the phase diagram in `README.md` — this only touches *how*
+Propose's draft and the critic/Verify checks are produced, never *which* phases exist or
+*when* a human gate fires.

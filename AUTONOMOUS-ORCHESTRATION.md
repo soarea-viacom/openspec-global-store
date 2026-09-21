@@ -31,11 +31,22 @@ A "change" always has two locations, never one:
   `--store <slug>` (slug recomputed from `git remote get-url origin`, kebab-
   cased; see that skill for the exact algorithm — there is no persisted
   mapping file, so always recompute, never cache a slug across sessions).
+  That directory is usually a separate external root
+  (`~/openspec-stores/<slug>`), but when the project already has its own
+  `openspec/` folder, the skill's Step 1 registers the project **as** the
+  store (same slug, `local_path` pointing at the project itself) — see
+  SKILL.md's local-mode routing. The two locations above then collapse into
+  one directory, but the CLI-level split (`--store <slug>` for artifacts,
+  plain project paths for code) is unchanged.
 
 Orchestration config (`orchestration.concurrency`, `gate_quick`,
-`gate_full`) lives ONLY in the store's `openspec/config.yaml` — single
-rule: a target project must not contain an `openspec/` folder at all, and
-`scripts/run-change` refuses any project that does.
+`gate_full`) lives ONLY in the resolved store's `openspec/config.yaml`.
+`scripts/run-change` refuses a project that has its own `openspec/` folder
+**only when** the store it's being pointed at is a genuinely different
+external root — that combination means the wrong store was resolved for a
+project that should be running in local mode instead (`guard_project_openspec`
+in `scripts/lib.sh`). A project running in local mode (store `local_path` ==
+the project) is never refused.
 
 Runtime state (slots, merge lock, phase files, initiatives) lives under
 `<store>/.orchestration/`, scoped to that one store/project. The concurrency

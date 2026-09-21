@@ -83,7 +83,7 @@ set_record() {
 cmd_slot_acquire() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$PROJECT" ] || usage
-  require_no_project_openspec "$PROJECT"
+  guard_project_openspec "$STORE" "$PROJECT"
   local dir; dir="$(orchestration_dir "$STORE")/slots"
   mkdir -p "$dir"
   local cap; cap="$(concurrency_cap "$STORE")"
@@ -108,7 +108,7 @@ cmd_slot_release() {
 cmd_workspace_create() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
-  require_no_project_openspec "$PROJECT"
+  guard_project_openspec "$STORE" "$PROJECT"
   ensure_project_git "$PROJECT"
   local branch="change/$NAME"
   local wt_path; wt_path="$(workspace_path "$STORE" "$NAME")"
@@ -132,7 +132,7 @@ cmd_workspace_remove() {
 cmd_gate_run() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] && [ -n "$MODE" ] || usage
-  require_no_project_openspec "$PROJECT"
+  guard_project_openspec "$STORE" "$PROJECT"
   local gcmd; gcmd="$(gate_command "$STORE" "$MODE")"
   [ -n "$gcmd" ] || { echo "no orchestration.gate_${MODE} configured in $(store_config "$STORE")" >&2; return 1; }
   local wt; wt="$(workspace_path "$STORE" "$NAME")"
@@ -161,7 +161,7 @@ cmd_model_critic() {
 cmd_merge_lane_run() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] || usage
-  require_no_project_openspec "$PROJECT"
+  guard_project_openspec "$STORE" "$PROJECT"
   local dir; dir="$(orchestration_dir "$STORE")"
   mkdir -p "$dir"
   local lock="$dir/merge.lock"

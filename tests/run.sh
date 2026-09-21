@@ -246,13 +246,30 @@ check_out "next: blocked -> wait" "blocked on feat-dep" $N
 $RC state set --store teststore --name feat-next phase checking last_gate_result purple
 check_out "next: unknown gate result errors" "unknown last_gate_result" bash -c "$N 2>&1; true"
 
-# single rule: a project containing openspec/ is refused outright
+# a project with its own openspec/ folder is refused when the resolved
+# store is a DIFFERENT external root (that combination means the caller
+# picked the wrong store for a project that should run in local mode)
 mkdir "$PROJECT/openspec"
-check_out "slot acquire refuses project with openspec/" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"
-check_out "workspace create refuses project with openspec/" "refusing" bash -c "$RC workspace create --store teststore --project '$PROJECT' --name feat-x 2>&1; true"
-check_out "gate run refuses project with openspec/" "refusing" bash -c "$RC gate run --store teststore --project '$PROJECT' --name feat-x --mode quick 2>&1; true"
-check_out "merge lane refuses project with openspec/" "refusing" bash -c "$RC merge-lane run --store teststore --project '$PROJECT' --name feat-x 2>&1; true"
-rmdir "$PROJECT/openspec"
+check_out "slot acquire refuses project with openspec/ against a different store" "refusing" bash -c "$RC slot acquire --store teststore --project '$PROJECT' 2>&1; true"
+check_out "workspace create refuses project with openspec/ against a different store" "refusing" bash -c "$RC workspace create --store teststore --project '$PROJECT' --name feat-x 2>&1; true"
+check_out "gate run refuses project with openspec/ against a different store" "refusing" bash -c "$RC gate run --store teststore --project '$PROJECT' --name feat-x --mode quick 2>&1; true"
+check_out "merge lane refuses project with openspec/ against a different store" "refusing" bash -c "$RC merge-lane run --store teststore --project '$PROJECT' --name feat-x 2>&1; true"
+
+# local mode: a store whose local_path IS the project itself is not refused,
+# even though the project has its own openspec/ folder (SKILL.md Step 1)
+cat >> "$OPENSPEC_STORE_REGISTRY" <<EOF
+  localstore:
+    local_path: $PROJECT
+EOF
+cat > "$PROJECT/openspec/config.yaml" <<'EOF'
+orchestration:
+  concurrency: 1
+  gate_quick: "echo QUICK-OK in $PWD"
+  gate_full: "echo FULL-OK in $PWD"
+EOF
+check "slot acquire allowed when the store's local_path is the project (local mode)" "$RC" slot acquire --store localstore --project "$PROJECT"
+$RC slot release --store localstore --slot 1 >/dev/null 2>&1 || true
+rmdir "$PROJECT/openspec" 2>/dev/null || rm -rf "$PROJECT/openspec"
 
 # merge lane: merges origin trunk into the change branch, reruns full gate, releases lock
 $RC workspace create --store teststore --project "$PROJECT" --name feat-a >/dev/null 2>&1

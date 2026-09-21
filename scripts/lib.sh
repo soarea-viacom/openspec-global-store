@@ -24,9 +24,12 @@ orchestration_dir() {
   echo "$path/.orchestration"
 }
 
-# Orchestration config lives ONLY in the store's openspec/config.yaml.
-# Single rule: a target project must not contain an openspec/ folder at all
-# (require_no_project_openspec below); there is no project-side fallback.
+# Orchestration config lives in the resolved store's openspec/config.yaml.
+# In external mode the store's local_path is a separate directory
+# (~/openspec-stores/<slug>) from the project; in local mode (SKILL.md
+# Step 1) the store's local_path IS the project itself, so this resolves
+# to the project's own openspec/config.yaml. Either way there's exactly
+# one config file per change, at whatever store_path() returns.
 store_config() {
   local slug="$1"
   local path
@@ -35,10 +38,21 @@ store_config() {
   echo "$path/openspec/config.yaml"
 }
 
-require_no_project_openspec() {
-  local project="$1"
+# guard_project_openspec <store-slug> <project>: refuse only when the
+# project has its own openspec/ folder AND the store this command is about
+# to operate against points somewhere else entirely — that combination
+# means the caller resolved the wrong store for a project that should be
+# running in local mode (SKILL.md Step 1), and writing to the external
+# store would silently diverge from the project's real artifacts. When the
+# store's local_path IS the project (local mode: store setup was run with
+# --path <project>), this is a no-op — the project's openspec/ folder is
+# exactly the resolved root, by design.
+guard_project_openspec() {
+  local slug="$1" project="$2"
+  local resolved; resolved="$(store_path "$slug")"
+  [ "${resolved%/}" = "${project%/}" ] && return 0
   [ ! -e "$project/openspec" ] || {
-    echo "refusing: $project contains an openspec/ folder — orchestrated projects must not; orchestration config lives in the store's openspec/config.yaml" >&2
+    echo "refusing: $project contains an openspec/ folder but store '$slug' points elsewhere ($resolved) — this project should run in local mode against its own folder (see SKILL.md Step 1), not against a different external store" >&2
     return 1
   }
 }

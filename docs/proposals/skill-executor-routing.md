@@ -171,22 +171,47 @@ granularity (some seams on a project skill, others on tier/model) is a real poss
 need, but it's explicitly deferred rather than half-solved here: it would multiply the
 config schema (and the trust-lookup surface) for a feature that's still speculative.
 
+### Model/tier interaction per executor kind
+
+The two executor kinds sit differently relative to `model_*`/tier, because the two
+dispatch tools they go through are shaped differently — this is a fact about the `Skill`
+and `Agent` tools, not a design choice:
+
+- **`skill:<name>` cannot be pinned to a tier's model at all.** The `Skill` tool's own
+  interface takes a skill name and args, nothing else — there is no caller-side model
+  parameter. Whatever model a skill runs at is fixed by its own definition/session, and
+  this proposal does not try to compose with that. Cost control for a skill-routed phase
+  is out of this engine's hands, by construction, not by omission.
+
+  This creates a real gap, though: `checker_model` (in `scripts/lib.sh`) escalates tier
+  when Verify's or the critic's resolved model would otherwise collide with the
+  generator's — a collision check needs *some* string to compare, and a skill-routed
+  phase has no real model id to offer it. The engine records a synthetic value instead of
+  leaving the field empty or stale: `session append ... model "skill:<name>"` for a
+  skill-routed phase, so `last_model_for_phases` still returns something, and it can never
+  collide with a genuine model id (real ids don't carry a `skill:` prefix) — an empty
+  string risks two unrelated empty entries reading as "the same model" to a naive
+  comparison, which a synthetic string rules out structurally.
+
+- **`subagent:<type>` *can* be pinned — the `Agent` tool takes a `model` override — but
+  the resolved tier model is only a default, never a clobber.** The Agent tool's own
+  override precedence already lets a caller's `model` param beat an agent definition's own
+  frontmatter; this proposal deliberately does not exercise that when the agent defines
+  its own model. If a project named a specific `subagent_type` for a phase, it chose that
+  agent's tuned behavior on purpose — a config value two layers away (the store's
+  `orchestration.model_<tier>`) silently overriding it would surprise whoever wired it in.
+  So: agent definition specifies a model → that wins, tier is not passed. Agent definition
+  leaves `model` unset → the phase's resolved tier model is passed through as the
+  `Agent` call's `model` param, so `orchestration.model_deep` etc. still governs cost for
+  agents that don't care enough to pin one themselves.
+
 ## Open questions
 
-Resolved during design review (see above): where trust declarations live, the
-generator/checker split for Propose specifically, Apply's granularity, the missing-executor
-failure mode, and keeping `subagent:`/`skill:` as distinct prefixes. Still open:
-
-- Does a `skill:<name>` executor get a model tier at all, or does the skill own its own
-  model choice entirely? If the former, `executor_*` and `model_*` need to compose (skill
-  runs, but constrained to the phase's tier's model); if the latter, cost control for that
-  phase moves out of this engine's hands. (Practical constraint: the `Skill` tool's own
-  interface takes no model parameter today, so composition would need the skill itself to
-  read the resolved model from somewhere — an env var or a value in its `args` — not a
-  caller-side override.)
-- Should `subagent:<type>` support passing the phase's resolved tier/model through as a
-  parameter (the `Agent` tool does accept a `model` override), so a custom agent still
-  respects `orchestration.model_deep` etc., or treat the two as fully separate knobs?
+None remain from the design-review sessions — every question raised has a decision
+recorded in the **Design** section above (trust allowlist location, the generator/checker
+split for Propose, Apply's granularity, the missing-executor failure mode, the
+`subagent:`/`skill:` prefixes, and the model/tier interaction per executor kind). This
+stays sketch-status until a project surfaces a concrete case to build it against.
 
 ## Relationship to existing docs
 

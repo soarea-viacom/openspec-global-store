@@ -85,9 +85,10 @@ flowchart TD
 | [`SKILL.md`](SKILL.md) | The skill definition Claude Code loads — preflight, root-resolution, the 3-phase workflow, guardrails. Read this first for *what* runs. |
 | [`AUTONOMOUS-ORCHESTRATION.md`](AUTONOMOUS-ORCHESTRATION.md) | The detailed rulebook for *how* a change is driven autonomously: phases, slots, dispatch groups, checker loops, model/effort routing, bug triage, initiatives. Written for the agent running it, not a human reader. |
 | [`scripts/run-change`](scripts/run-change) | The mechanical "none-tier" engine: slots, workspaces/worktrees, gates, merge lane, state and session-log bookkeeping. Does not propose, implement, fix, or verify — that's the agent's job. |
-| [`scripts/lib.sh`](scripts/lib.sh) | Shared helpers `run-change` sources: store/registry lookups, state-file dialect, model routing, the local-vs-external guard. |
+| [`scripts/lib.sh`](scripts/lib.sh) | Shared helpers `run-change` sources: store/registry lookups, state-file dialect, model routing, the project-skill stage mapping, the local-vs-external guard. |
 | [`tests/run.sh`](tests/run.sh) | Black-box tests for `run-change`, driven only through its CLI. |
 | [`CONTEXT.md`](CONTEXT.md) | Domain glossary — Store, Change, Worker, Advisor, Blackboard, Seam list, etc. |
+| [`docs/proposals/`](docs/proposals/) | Design records for extensions to the engine — adopted ones name where they landed (e.g. [`skill-stage-mapping.md`](docs/proposals/skill-stage-mapping.md)); unadopted ones stay marked as sketches. |
 | `openspec/`, `.openspec-store/` | This repo's *own* OpenSpec scaffold (for developing the skill itself under its own discipline) — not something a target project needs. |
 
 ## How to use
@@ -172,8 +173,9 @@ bash tests/run.sh
 
 Exercises `scripts/run-change` end to end against a temp registry and a
 temp git origin/clone — slots, workspaces, gates, merge lane, the
-local-vs-external guard, and state transitions. All three scripts are also
-expected to pass `bash -n` (parse-checked) before behavior tests run.
+local-vs-external guard, the `stage-skills get` lookup, and state
+transitions. All three scripts are also expected to pass `bash -n`
+(parse-checked) before behavior tests run.
 
 ### 7. Configuring a project
 
@@ -189,10 +191,19 @@ orchestration:
   model_mechanical: claude-haiku-4-5-20251001   # optional overrides
   model_standard: claude-sonnet-5
   model_deep: claude-opus-5
+  stage_skills:                      # optional — route to the project's own skills
+    plan: project-spec-drafter       # replaces the default drafter
+    critic: [project-code-review]    # runs in addition to the default checker
+    test: [project-test-skill]       # runs in addition to the default checker
 ```
 
 `model_*` are optional — unset tiers fall back to the engine's default
-tier→model table (`scripts/run-change model get`).
+tier→model table (`scripts/run-change model get`). `stage_skills` is
+likewise optional — see
+[`docs/proposals/skill-stage-mapping.md`](docs/proposals/skill-stage-mapping.md)
+for the full design: `plan` takes at most one skill and replaces the
+deep-tier drafter when set; `critic`/`test` take a list and stack on top
+of the built-in checker rather than replacing it.
 
 ## Guardrails at a glance
 

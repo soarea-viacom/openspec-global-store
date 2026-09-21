@@ -1,41 +1,33 @@
 # openspec-orchestrator
 
-A [Claude Code skill](https://claude.com/claude-code) that drives spec-driven
-development on top of [OpenSpec](https://github.com/Fission-AI/OpenSpec):
-propose a delta spec, get it critiqued, implement it, gate and verify it, then
-archive it into the living spec — **before any application code changes**,
-and end-to-end with no manual step-by-step mode.
+A [Claude Code](https://claude.com/claude-code) skill for spec-driven development on top
+of [OpenSpec](https://github.com/Fission-AI/OpenSpec): draft a delta spec, critique it,
+implement it, gate and verify it, archive it into the living spec. Execution is
+autonomous end to end, with two defined human checkpoints.
 
-This repo is the **engine**, not a target project. It ships once
-(`SKILL.md`, `AUTONOMOUS-ORCHESTRATION.md`, `scripts/`) and is applied, by
-the skill, to whichever project you invoke it on.
+This repository is the engine (`SKILL.md`, `AUTONOMOUS-ORCHESTRATION.md`, `scripts/`), not
+a target project. It is applied, by the skill, to whichever project it is invoked on.
 
-## What this is
+## Overview
 
-Two halves:
+- **Discipline.** No application code changes before a delta spec proposal exists and has
+  passed critique. Implementation maps 1:1 to the finalized proposal, tests land with it,
+  and a full gate — including a dead-code pass — runs before anything is archived.
+- **Routing.** Determines where OpenSpec artifacts (proposals, specs, tasks) live for a
+  given project:
+  - a project with a local `openspec/` folder uses it (**local mode**);
+  - a project with neither a local folder nor a registered store gets an **external
+    store** under `~/openspec-stores/<slug>/`, leaving the project's directory and git
+    history untouched by OpenSpec;
+  - a project with neither is asked once, at first invocation.
 
-- **The discipline** — never write, modify, or delete application code
-  before a delta spec proposal exists and has passed critique. Implementation
-  maps 1:1 to the finalized proposal, tests land with it, and a full gate
-  (including a dead-code pass) runs before anything is archived.
-- **The routing** — deciding *where* OpenSpec artifacts (proposals, specs,
-  tasks) live for a given project:
-  - a project that already has a local `openspec/` folder keeps using it
-    (**local mode**);
-  - a project with neither a local folder nor a registered store gets an
-    **external store** under `~/openspec-stores/<slug>/`, keeping the
-    project's own directory and git history untouched by OpenSpec;
-  - a project with neither yet is asked, once, which it wants.
+  Local mode takes priority over an existing external store for the same project. See
+  [SKILL.md § Step 1](SKILL.md).
+- **Execution.** Autonomous: Propose → Apply → Check → Verify → Archive → Merge, end to
+  end, with at most two human checkpoints per change (see flowchart). There is no
+  step-by-step mode.
 
-Local always takes priority over an external store if both exist for the
-same project — see [SKILL.md § Step 1](SKILL.md) for the exact algorithm.
-
-Execution is **always autonomous**: invoking the skill on a change runs
-Propose → Apply → Check → Verify → Archive → Merge end to end, asking a
-human only twice at most per change (see the flowchart below), never for
-routine "should I continue?" approval between phases.
-
-## How it fits together
+## Architecture
 
 ```mermaid
 flowchart TD
@@ -78,110 +70,88 @@ flowchart TD
     GATE2 -- approved --> MERGED[Squash-merged to trunk<br/>slot + workspace released]
 ```
 
-## Repo layout
+## Repository layout
 
-| Path | What it is |
+| Path | Contents |
 |---|---|
-| [`SKILL.md`](SKILL.md) | The skill definition Claude Code loads — preflight, root-resolution, the 3-phase workflow, guardrails. Read this first for *what* runs. |
-| [`AUTONOMOUS-ORCHESTRATION.md`](AUTONOMOUS-ORCHESTRATION.md) | The detailed rulebook for *how* a change is driven autonomously: phases, slots, dispatch groups, checker loops, model/effort routing, bug triage, initiatives. Written for the agent running it, not a human reader. |
-| [`scripts/run-change`](scripts/run-change) | The mechanical "none-tier" engine: slots, workspaces/worktrees, gates, merge lane, state and session-log bookkeeping. Does not propose, implement, fix, or verify — that's the agent's job. |
-| [`scripts/lib.sh`](scripts/lib.sh) | Shared helpers `run-change` sources: store/registry lookups, state-file dialect, model routing, the project-skill stage mapping, the local-vs-external guard. |
-| [`tests/run.sh`](tests/run.sh) | Black-box tests for `run-change`, driven only through its CLI. |
-| [`CONTEXT.md`](CONTEXT.md) | Domain glossary — Store, Change, Worker, Advisor, Blackboard, Seam list, etc. |
-| [`docs/proposals/`](docs/proposals/) | Design records for extensions to the engine — adopted ones name where they landed (e.g. [`skill-stage-mapping.md`](docs/proposals/skill-stage-mapping.md)); unadopted ones stay marked as sketches. |
-| `openspec/`, `.openspec-store/` | This repo's *own* OpenSpec scaffold (for developing the skill itself under its own discipline) — not something a target project needs. |
+| [`SKILL.md`](SKILL.md) | Skill definition: preflight, root resolution, the 3-phase workflow, guardrails. |
+| [`AUTONOMOUS-ORCHESTRATION.md`](AUTONOMOUS-ORCHESTRATION.md) | Operational rules for the autonomous run: phases, slots, dispatch groups, checker loops, model/effort routing, bug triage, initiatives. |
+| [`scripts/run-change`](scripts/run-change) | Mechanical engine: slots, workspaces/worktrees, gates, merge lane, state and session-log bookkeeping. |
+| [`scripts/lib.sh`](scripts/lib.sh) | Shared helpers: store/registry lookups, state-file format, model routing, project-skill stage mapping, local-vs-external guard. |
+| [`tests/run.sh`](tests/run.sh) | Black-box tests for `run-change`, via its CLI only. |
+| [`CONTEXT.md`](CONTEXT.md) | Domain glossary: Store, Change, Worker, Advisor, Blackboard, Seam list, etc. |
+| [`docs/proposals/`](docs/proposals/) | Design records for engine extensions. Adopted proposals reference where they landed; others are marked as sketches. |
+| `openspec/`, `.openspec-store/` | This repository's own OpenSpec scaffold, used to develop the skill under its own discipline. Not required by a target project. |
 
-## How to use
+## Installation
 
-### 1. Prerequisites
+### Prerequisites
 
 - [Claude Code](https://claude.com/claude-code).
-- The `openspec` CLI on `PATH`: `npm i -g openspec`. The skill offers to
-  install/upgrade this globally itself if it's missing — never as a
-  dependency of your project.
-- Your target project should be a git repo (if it isn't, the skill runs
-  `git init` and an initial commit for you before doing anything else —
-  the one write it makes under a project root beyond OpenSpec artifacts).
+- The `openspec` CLI on `PATH`: `npm i -g openspec`. The skill installs/upgrades this
+  globally when missing; never as a project dependency.
+- A target project must be a git repository. If it isn't, the skill runs `git init` and an
+  initial commit before proceeding.
 
-### 2. Install the skill
+### Install the skill
 
-Copy (or symlink) this repo's `SKILL.md` and `AUTONOMOUS-ORCHESTRATION.md`
-into a skill directory Claude Code loads, e.g.:
+`SKILL.md` and `AUTONOMOUS-ORCHESTRATION.md` invoke `scripts/run-change` as a path
+relative to the skill's own directory; `scripts/lib.sh` locates its sibling files the same
+way. The full repository — at minimum `SKILL.md`, `AUTONOMOUS-ORCHESTRATION.md`, and
+`scripts/` — must be present in that layout wherever Claude Code loads skills from.
+Symlinking the repository keeps it current with `git pull`:
 
 ```bash
-mkdir -p ~/.claude/skills/openspec-orchestrator
-cp SKILL.md AUTONOMOUS-ORCHESTRATION.md ~/.claude/skills/openspec-orchestrator/
+ln -s "$(pwd)" ~/.claude/skills/openspec-orchestrator
 ```
 
-### 3. Invoke it
+A plain copy works as well; it requires re-copying after updates.
 
-From inside (or pointed at) your target project, ask Claude Code to make a
-change under spec control — the skill triggers automatically on that kind
-of request, or invoke it by name:
+## Usage
+
+Invoke from inside, or pointed at, a target project:
 
 ```
 /openspec-orchestrator add rate limiting to the /login endpoint
 ```
 
-For read-only discovery before you're ready to commit to a change (no
-artifacts written), use the sibling command instead:
+For read-only discovery with no artifacts written:
 
 ```
 /sdd:explore how should we approach rate limiting?
 ```
 
-### 4. What happens next
+### Execution sequence
 
-1. **Routing** — the skill resolves whether this project uses local mode,
-   external-store mode, or asks you which (see the flowchart above and
-   [SKILL.md § Step 1](SKILL.md)). This happens once per invocation, from
-   repo state — nothing is cached, so it's recomputed correctly even if you
-   later add or remove a local `openspec/` folder.
-2. **The full autonomous run** — Propose (with critique) → Apply → Check
-   (gate) → Verify → Archive → Merge lane, with fix rounds and tier
-   escalation handled automatically. You are not asked between phases.
-3. **Gate 1** (only if something's wrong before code is trusted) — the spec
-   critique or the Verify checker couldn't converge, or the request itself
-   is ambiguous. You get the report and clarify; the change resumes from
-   there.
-4. **Gate 2** (once, at the end) — the change is green and ready. You get a
-   diffstat, the gate log, and the verify report, and approve the
-   squash-merge onto trunk.
+1. **Routing** — resolves local mode, external-store mode, or prompts once. Recomputed
+   from repo state on every invocation; not cached. See [SKILL.md § Step 1](SKILL.md).
+2. **Autonomous run** — Propose (with critique) → Apply → Check → Verify → Archive →
+   Merge lane, with fix rounds and tier escalation handled automatically. No approval
+   between phases.
+3. **Gate 1** (conditional) — raised if critique or Verify cannot converge, or the request
+   is ambiguous. Requires clarification before the change resumes.
+4. **Gate 2** (once, at completion) — diffstat, gate log, and verify report presented for
+   squash-merge approval.
 
-If you ask for "just the proposal" or "only apply," that's still treated as
-the whole change — there is no manual step-by-step mode to fall back to. If
-you genuinely want to stop early, say so; the change is left `blocked`.
+A request scoped to a single phase (e.g. "just draft the proposal") is still treated as
+the full change; there is no partial-run mode. Stopping early leaves the change `blocked`.
 
-### 5. Local vs. external mode, in practice
+### Local vs. external mode
 
 | | Local mode | External mode |
 |---|---|---|
-| When | Project already has (or you chose) `openspec/` in the project | Project has neither, or a store was already registered |
-| Artifacts live in | `<project>/openspec/` | `~/openspec-stores/<slug>/openspec/` |
-| Project git history | Artifacts are part of it | Untouched by OpenSpec |
-| How it's wired | The project itself is registered as the store (`openspec store setup <slug> --path <project> --no-init-git`) | A separate directory is registered as the store (git-backed, its own history) |
-| Config (`orchestration.*`, gates, models) | `<project>/openspec/config.yaml` | `~/openspec-stores/<slug>/openspec/config.yaml` |
+| Applies when | Project has (or the user chose) `openspec/` in the project | Project has neither, or a store is already registered |
+| Artifact location | `<project>/openspec/` | `~/openspec-stores/<slug>/openspec/` |
+| Project git history | Includes artifacts | Untouched by OpenSpec |
+| Registration | Project registered as the store (`openspec store setup <slug> --path <project> --no-init-git`) | Separate directory registered as the store, with its own git history |
+| Config location | `<project>/openspec/config.yaml` | `~/openspec-stores/<slug>/openspec/config.yaml` |
 
-Never run `openspec store remove` on a local-mode store — its `local_path`
-*is* the project root, so `--yes` would delete project files.
+`openspec store remove` must not be run on a local-mode store: its `local_path` is the
+project root, and `--yes` deletes project files.
 
-### 6. Running the test suite
+### Configuration
 
-```bash
-bash tests/run.sh
-```
-
-Exercises `scripts/run-change` end to end against a temp registry and a
-temp git origin/clone — slots, workspaces, gates, merge lane, the
-local-vs-external guard, the `stage-skills get` lookup, and state
-transitions. All three scripts are also expected to pass `bash -n`
-(parse-checked) before behavior tests run.
-
-### 7. Configuring a project
-
-Per-project orchestration settings live only in the resolved root's
-`openspec/config.yaml` (local or external, per the table above), never in
-the target project's other files:
+Orchestration settings live only in the resolved root's `openspec/config.yaml`:
 
 ```yaml
 orchestration:
@@ -197,22 +167,29 @@ orchestration:
     test: [project-test-skill]       # runs in addition to the default checker
 ```
 
-`model_*` are optional — unset tiers fall back to the engine's default
-tier→model table (`scripts/run-change model get`). `stage_skills` is
-likewise optional — see
-[`docs/proposals/skill-stage-mapping.md`](docs/proposals/skill-stage-mapping.md)
-for the full design: `plan` takes at most one skill and replaces the
-deep-tier drafter when set; `critic`/`test` take a list and stack on top
-of the built-in checker rather than replacing it.
+`model_*` are optional; unset tiers fall back to the default tier→model table
+(`scripts/run-change model get`). `stage_skills` is optional: `plan` accepts at most one
+skill and replaces the deep-tier drafter when set; `critic`/`test` accept a list and stack
+on top of the built-in checker. See
+[`docs/proposals/skill-stage-mapping.md`](docs/proposals/skill-stage-mapping.md).
 
-## Guardrails at a glance
+### Tests
 
-- Never runs `openspec init` in a project, in either mode.
-- Never writes under a project root beyond OpenSpec artifacts themselves,
-  `.openspec-store/store.yaml` (local mode), and — only when missing — a
-  `git init` plus initial commit.
-- Local mode always wins over an existing external store for the same
-  project; the bypassed store is never touched.
+```bash
+bash tests/run.sh
+```
+
+Exercises `scripts/run-change` against a temporary registry and git origin/clone: slots,
+workspaces, gates, merge lane, the local-vs-external guard, `stage-skills get`, and state
+transitions. All three scripts must also pass `bash -n`.
+
+## Guardrails
+
+- `openspec init` is never run in a target project, in either mode.
+- No writes under a project root beyond OpenSpec artifacts, `.openspec-store/store.yaml`
+  (local mode), and a `git init` plus initial commit when missing.
+- Local mode takes priority over an existing external store for the same project; the
+  bypassed store is left untouched.
 - Every OpenSpec CLI call carries `--store <slug>` once a root is resolved.
 
-Full details: [SKILL.md § Guardrails](SKILL.md).
+Full list: [SKILL.md § Guardrails](SKILL.md).

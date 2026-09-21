@@ -157,7 +157,8 @@ one check the engine can vouch for" principle for `critic`/`test`.
 
 This extends, not replaces, the **Model/effort routing** section of
 `AUTONOMOUS-ORCHESTRATION.md` and the `model_for_tier`/`checker_model` functions in
-`scripts/lib.sh`. No change was made to `SKILL.md`'s Step 0–3 (preflight, root resolution,
-the 3-phase engine) or to the phase diagram in `README.md` — this only touches *how*
-Propose's draft and the critic/Verify checks are produced, never *which* phases exist or
-*when* a human gate fires.
+`scripts/lib.sh`. `SKILL.md`'s Step 3 carries a short pointer to the same mechanism (check
+`stage-skills get` before dispatching), but Step 0–2 (preflight, root resolution) and the
+phase diagram in `README.md` are untouched — this only touches *how* Propose's draft and
+the critic/Verify checks are produced, never *which* phases exist, *when* a human gate
+fires, or how the artifact root is resolved.

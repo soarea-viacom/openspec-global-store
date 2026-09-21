@@ -69,6 +69,17 @@ Every OpenSpec CLI call below gets `--store <slug>` appended — e.g. `openspec 
   - Verify syntax execution and run the testing suite locally, plus the project's dead-code pass (`knip` for JS/TS, `vulture` for Python, or equivalent) — a passing suite cannot see an abandoned helper or an unused dependency this change left behind; delete what the pass names before archiving.
   - Cleanly merge finalized changes back into the store's living specs.
 
+Before drafting the proposal or dispatching the critique/verify checkers, check
+`scripts/run-change stage-skills get --store <slug> --stage plan|critic|test` — the
+resolved root's `openspec/config.yaml` may name one of the *project's own* skills for
+that stage (`orchestration.stage_skills`). A mapped `plan` skill drafts instead of the
+default deep-tier model; a mapped `critic`/`test` skill runs *in addition to* the default
+checker, never instead of it. See **Project-skill stage mapping** in
+[AUTONOMOUS-ORCHESTRATION.md](AUTONOMOUS-ORCHESTRATION.md) for the exact rule and
+[`docs/proposals/skill-stage-mapping.md`](docs/proposals/skill-stage-mapping.md) for the
+design rationale. Unset (the common case) → the three phases run exactly as described
+above, no project skill involved.
+
 ## Autonomous only
 
 This skill has exactly one execution mode. Invoking it on a change means:
@@ -101,4 +112,4 @@ In **external mode**, `openspec workset create <slug> --member project=<project-
 - Never omit `--store <slug>` on an OpenSpec CLI call once a root is resolved — a bare command silently falls back to the current directory as root, which would put artifacts in the wrong place. This applies in both modes.
 - **Local takes priority, never silently:** if a project has a local `openspec/` folder, use it — do not refuse, and do not fall back to an external store instead, even if one is already registered for this project's slug (Step 1). If both exist, say so once to the user and explain local is being used; never delete or modify the bypassed external store.
 - **Never run `openspec store remove` on a local-mode store.** Its `local_path` is the project root, so `--yes` deletes the project's `openspec/` and any other untracked project files. A local-mode store, once registered, stays registered for the project's life; there is no supported unregister-only path.
-- Autonomous-orchestration config (`orchestration.concurrency`, `gate_quick`, `gate_full` — which must include the project's dead-code pass, e.g. `npm test && npx knip` — `model_mechanical`, `model_standard`, `model_deep`) goes in the **resolved root's** `openspec/config.yaml` — `~/openspec-stores/<slug>/openspec/config.yaml` in external mode, `<project>/openspec/config.yaml` in local mode. This is the single location the engine reads per mode. The `model_*` keys are optional overrides; `scripts/run-change model get` falls back to the engine's default tier→model table when a store doesn't set them.
+- Autonomous-orchestration config (`orchestration.concurrency`, `gate_quick`, `gate_full` — which must include the project's dead-code pass, e.g. `npm test && npx knip` — `model_mechanical`, `model_standard`, `model_deep`, `stage_skills`) goes in the **resolved root's** `openspec/config.yaml` — `~/openspec-stores/<slug>/openspec/config.yaml` in external mode, `<project>/openspec/config.yaml` in local mode. This is the single location the engine reads per mode. The `model_*` keys are optional overrides; `scripts/run-change model get` falls back to the engine's default tier→model table when a store doesn't set them. `stage_skills` is likewise optional; unset means no project skill is involved in Propose, critique, or Verify — see Step 3 above.

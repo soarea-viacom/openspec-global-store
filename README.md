@@ -1,5 +1,7 @@
 # openspec-orchestrator
 
+<img src="assets/logo.svg" alt="openspec-orchestrator logo" width="340">
+
 A [Claude Code](https://claude.com/claude-code) skill for spec-driven development on top
 of [OpenSpec](https://github.com/Fission-AI/OpenSpec): draft a delta spec, critique it,
 implement it, gate and verify it, archive it into the living spec. Execution is

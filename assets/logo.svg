@@ -1,0 +1,25 @@
+<svg width="680" height="240" viewBox="0 0 680 240" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>openspec-orchestrator</title>
+<desc>A rounded square badge containing a brain outline. Inside, three connected dots represent the autonomous Propose-Apply-Verify pipeline. Two diamond markers on the brain's edge represent the two human checkpoints. Next to the badge is the wordmark "openspec" with subtitle "orchestrator".</desc>
+<style>
+  .badge { fill: #EEEDFE; stroke: #534AB7; }
+  .brain { fill: none; stroke: #534AB7; }
+  .pipe-line { stroke: #0F6E56; }
+  .pipe-node { fill: #5DCAA5; stroke: #0F6E56; }
+  .gate { fill: #FAECE7; stroke: #D85A30; }
+  .title { fill: #1a1a1a; font-family: -apple-system, "Segoe UI", sans-serif; font-size: 28px; font-weight: 500; }
+  .subtitle { fill: #5F5E5A; font-family: -apple-system, "Segoe UI", sans-serif; font-size: 16px; font-weight: 400; }
+</style>
+<rect class="badge" x="40" y="40" width="160" height="160" rx="32" stroke-width="0.5"/>
+<path class="brain" d="M80,105 C70,88 82,70 100,72 C104,63 116,63 120,72 C127,63 140,65 145,74 C160,70 172,83 167,100 C177,109 175,124 165,130 C171,141 163,153 150,155 C146,164 132,166 122,159 C114,167 100,165 93,156 C80,159 68,150 70,137 C60,131 60,117 68,110 C71,107 75,106 80,105 Z" stroke-width="4" stroke-linejoin="round"/>
+<path class="brain" d="M120,72 C118,95 122,120 120,159" stroke-width="2"/>
+<line class="pipe-line" x1="95" y1="110" x2="122" y2="128" stroke-width="3"/>
+<line class="pipe-line" x1="122" y1="128" x2="148" y2="105" stroke-width="3"/>
+<circle class="pipe-node" cx="95" cy="110" r="6" stroke-width="0.5"/>
+<circle class="pipe-node" cx="122" cy="128" r="6" stroke-width="0.5"/>
+<circle class="pipe-node" cx="148" cy="105" r="6" stroke-width="0.5"/>
+<rect class="gate" x="-13" y="-13" width="26" height="26" rx="3" transform="translate(78,80) rotate(45)" stroke-width="2"/>
+<rect class="gate" x="-13" y="-13" width="26" height="26" rx="3" transform="translate(158,140) rotate(45)" stroke-width="2"/>
+<text class="title" x="240" y="118">openspec</text>
+<text class="subtitle" x="240" y="142">orchestrator</text>
+</svg>

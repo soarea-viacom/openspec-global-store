@@ -140,6 +140,14 @@ cmd_gate_run() {
   local wt; wt="$(workspace_path "$STORE" "$NAME")"
   [ -d "$wt" ] || { echo "no workspace for change $NAME (expected $wt) — run workspace create first" >&2; return 1; }
   ( cd "$wt" && eval "$gcmd" )
+  # A passing full gate records the tree it ran on. merge-lane skips its
+  # rerun when the merged tree is identical: same tree, same result.
+  if [ "$MODE" = full ]; then
+    local sf="$(state_root "$STORE")/$NAME.yaml"
+    if [ -f "$sf" ]; then
+      state_write "$sf" gate_tree "$(git -C "$wt" rev-parse 'HEAD^{tree}')"
+    fi
+  fi
 }
 
 cmd_model_get() {
@@ -196,7 +204,14 @@ cmd_merge_lane_run() {
   # remote ref that doesn't exist — that would fail late with a git error.
   local ref="origin/$trunk"
   git -C "$PROJECT" rev-parse --verify -q "refs/remotes/$ref" >/dev/null || ref="$trunk"
-  git -C "$(workspace_path "$STORE" "$NAME")" merge "$ref" --no-edit
+  local wt; wt="$(workspace_path "$STORE" "$NAME")"
+  git -C "$wt" merge "$ref" --no-edit
+  local sf="$(state_root "$STORE")/$NAME.yaml" tree
+  tree="$(git -C "$wt" rev-parse 'HEAD^{tree}')"
+  if [ -f "$sf" ] && [ "$(state_field "$sf" gate_tree)" = "$tree" ]; then
+    echo "full gate already green on this exact tree ($tree); skipping rerun" >&2
+    return 0
+  fi
   cmd_gate_run --store "$STORE" --project "$PROJECT" --name "$NAME" --mode full
 }
 
@@ -215,6 +230,7 @@ last_critique_result: ""
 prev_critique_result: ""
 fix_attempts: 0
 last_gate_result: ""
+gate_tree: ""
 last_verify_result: ""
 prev_verify_result: ""
 initiative: ""

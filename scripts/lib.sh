@@ -325,6 +325,8 @@ critic_model() { checker_model "$1" "$(proposer_model "$1" "$2")" proposer; }
 #   model     resolved model id, or - for none-tier steps
 #   set_phase phase to record once the step completes (absent = unchanged)
 #   reason    the rule that produced this answer
+#   also      a second, read-only step to dispatch concurrently (only on
+#   also_model  `check`: Verify, with its distinct-model id)
 # Every threshold here mirrors a rule in AUTONOMOUS-ORCHESTRATION.md; if
 # they ever disagree, the doc is wrong and this is right, because this is
 # what runs. Read-only: the orchestrator does the step and records results.
@@ -392,13 +394,21 @@ next_action() {
     checking)
       case "$gate" in
         "")
-          emit check none - "run the full gate; record last_gate_result green|red" ;;
+          # Both are read-only readers of the committed tree, so they run
+          # at once; the pass line (green AND clean) is unchanged.
+          emit check none - "run the full gate and Verify concurrently on the committed tree; record last_gate_result green|red and last_verify_result"
+          local vm; vm="$(verify_model "$slug" "$name")" || vm=-
+          printf 'also: verify\nalso_model: %s\n' "$vm" ;;
         red)
-          if [ "$fixes" -ge "$FIX_CAP" ]; then
+          if [ "$verify" = spec ]; then
+            emit gate1 none - "verify says the proposal itself is wrong: human owns the spec"
+          elif [ -n "$verify" ] && not_converging "$verify" "$pverify"; then
+            emit gate1 none - "verify not converging: $pverify -> $verify, blocking count did not fall; spending remaining rounds would repeat it"
+          elif [ "$fixes" -ge "$FIX_CAP" ]; then
             emit gate1 none - "full gate red after $fixes/$FIX_CAP fix rounds"
           else
             local n=$((fixes + 1)); local t; t="$(fix_tier "$n")"
-            emit fix "$t" "$(model_for_tier "$slug" "$t")" "gate red, fix round $n/$FIX_CAP (round 1 may drop to mechanical by triage); then clear last_gate_result and recheck"
+            emit fix "$t" "$(model_for_tier "$slug" "$t")" "gate red${verify:+; verify $verify}, fix round $n/$FIX_CAP (round 1 may drop to mechanical by triage): fix everything the gate${verify:+ and the verify report} name, then clear last_gate_result and last_verify_result and recheck"
           fi ;;
         green)
           case "$verify" in

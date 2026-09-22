@@ -125,7 +125,9 @@ check "gitignore entry not duplicated" test "$(grep -c '.orchestration/workspace
 $RC workspace remove --store teststore --project "$PROJECT" --name feat-dup
 # gate runs in the change's worktree, never the project's main checkout
 check_out "quick gate runs in the worktree" "QUICK-OK in $wt" $RC gate run --store teststore --project "$PROJECT" --name feat-a --mode quick
+check_out "quick gate does not record gate_tree" 'gate_tree: ""' $RC state get --store teststore --name feat-a
 check_out "full gate runs in the worktree" "FULL-OK in $wt" $RC gate run --store teststore --project "$PROJECT" --name feat-a --mode full
+check "passing full gate records the tree it ran on" bash -c "grep -qE '^gate_tree: [0-9a-f]{40}\$' '$STORE/.orchestration/state/feat-a.yaml'"
 check_out "gate run without a workspace errors" "no workspace for change" bash -c "$RC gate run --store teststore --project '$PROJECT' --name feat-none --mode quick 2>&1; true"
 $RC workspace remove --store teststore --project "$PROJECT" --name feat-a
 check "workspace removed" test ! -e "$wt"
@@ -221,6 +223,8 @@ $RC state set --store teststore --name feat-next phase applying
 check_out "next: applying -> apply then checking" "set_phase: checking" $N
 $RC state set --store teststore --name feat-next phase checking
 check_out "next: checking with no gate result -> check" "action: check" $N
+check_out "next: check also dispatches verify concurrently" "also: verify" $N
+check_out "next: concurrent verify gets the distinct-model id" "also_model: claude-opus-5-custom" $N
 $RC state set --store teststore --name feat-next last_gate_result red
 check_out "next: red gate -> fix round 1" "action: fix" $N
 check_out "next: fix round 1 is standard" "tier: standard" $N
@@ -261,6 +265,17 @@ check_out "next: blocked -> wait" "blocked on feat-dep" $N
 $RC state set --store teststore --name feat-next phase checking last_gate_result purple
 check_out "next: unknown gate result errors" "unknown last_gate_result" bash -c "$N 2>&1; true"
 
+# check phase with a verify result already recorded (both ran concurrently)
+R="$RC next --store teststore --name feat-red"
+$RC state init --store teststore --name feat-red
+$RC state set --store teststore --name feat-red phase checking last_gate_result red last_verify_result spec
+check_out "next: red gate but verify says spec -> gate1" "action: gate1" $R
+$RC state set --store teststore --name feat-red last_verify_result blocking:2
+check_out "next: red gate with blocking verify -> one fix round for both" "verify blocking:2" $R
+check_out "next: that fix round clears both results" "clear last_gate_result and last_verify_result" $R
+$RC state set --store teststore --name feat-red last_verify_result blocking:2
+check_out "next: red gate, verify not converging -> gate1" "verify not converging" $R
+
 # a project with its own openspec/ folder is refused when the resolved
 # store is a DIFFERENT external root (that combination means the caller
 # picked the wrong store for a project that should run in local mode)
@@ -286,9 +301,14 @@ check "slot acquire allowed when the store's local_path is the project (local mo
 $RC slot release --store localstore --slot 1 >/dev/null 2>&1 || true
 rmdir "$PROJECT/openspec" 2>/dev/null || rm -rf "$PROJECT/openspec"
 
-# merge lane: merges origin trunk into the change branch, reruns full gate, releases lock
+# merge lane: merges origin trunk into the change branch, reruns the full gate
+# only if the merged tree differs from the one that already passed, releases lock
 $RC workspace create --store teststore --project "$PROJECT" --name feat-a >/dev/null 2>&1
-check_out "merge lane merges trunk and runs full gate in the worktree" "FULL-OK in $STORE/.orchestration/workspaces/feat-a" $RC merge-lane run --store teststore --project "$PROJECT" --name feat-a
+check_out "merge lane skips the gate when the tree already passed it" "skipping rerun" $RC merge-lane run --store teststore --project "$PROJECT" --name feat-a
+echo moved > "$PROJECT/TRUNK-MOVED" && git -C "$PROJECT" add -A && git -C "$PROJECT" commit -qm trunk-moves && git -C "$PROJECT" push -q origin main
+before="$(grep '^gate_tree:' "$STORE/.orchestration/state/feat-a.yaml")"
+check_out "merge lane merges trunk and reruns full gate when the tree changed" "FULL-OK in $STORE/.orchestration/workspaces/feat-a" $RC merge-lane run --store teststore --project "$PROJECT" --name feat-a
+check "rerun full gate records the new tree" test "$(grep '^gate_tree:' "$STORE/.orchestration/state/feat-a.yaml")" != "$before"
 
 # merge lane on a local-only project (no remote): merges the local trunk
 LOCAL="$TMP/local-project"

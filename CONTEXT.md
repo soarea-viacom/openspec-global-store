@@ -100,7 +100,9 @@
 - **Next action**: `scripts/run-change next --store <slug> --name <change>`
   — the orchestration policy as one read-only function (`next_action` in
   `scripts/lib.sh`) that maps a change's state file + session log to the
-  single next step (`action`, `tier`, `model`, `set_phase`, `reason`). The
+  single next step (`action`, `tier`, `model`, `set_phase`, `reason`; on
+  `check` also `also: verify` + `also_model`, a read-only step to run
+  concurrently). The
   agent does the step and records results; it never re-derives the
   lifecycle from prose. Caps live beside it: `FIX_CAP`, `PROPOSE_CAP`,
   `ADVISOR_CAP`.
@@ -111,6 +113,12 @@
   includes the project's dead-code pass (`knip`, `vulture`, or
   equivalent); for this engine that is the no-caller function scan in
   `tests/run.sh`.
+- **Gate tree**: the `gate_tree` state field — the git tree id the last
+  *passing* full gate ran on, written by `gate run --mode full` itself.
+  The merge lane compares it to the tree after merging trunk in and skips
+  the gate rerun when they are equal: same tree, same deterministic
+  result. Any change to the tree (trunk moved, Archive commit in local
+  mode) forces the rerun.
 - **Merge lane**: the serialized merge-trunk-then-full-gate step behind
   `<store>/.orchestration/merge.lock`. Merges `origin/<trunk>` if that ref
   exists, else the local trunk — local-only projects are supported; a

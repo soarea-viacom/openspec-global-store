@@ -55,17 +55,14 @@ flowchart TD
         P1c -- blocking, rounds left --> P1
         P1c -- clean/warnings --> P2[Apply: implement per seam,<br/>quick gate + commit each wave]
         P1c -- not converging / out of rounds --> GATE1[["Gate 1 (human)<br/>clarify the request"]]
-        P2 --> P3[Check: full gate incl. dead-code pass]
-        P3 -- red, rounds left --> FIX[Fix round] --> P3
-        P3 -- red, out of rounds --> GATE1
-        P3 -- green --> P4[Verify: distinct-model checker<br/>grades code against proposal]
-        P4 -- blocking, rounds left --> FIX
-        P4 -- not converging / out of rounds --> GATE1
-        P4 -- spec wrong --> GATE1
-        P4 -- clean/warnings --> P5[Archive]
-        P5 --> P6[Merge lane: merge trunk in,<br/>rerun full gate]
+        P2 --> P3[Check + Verify, concurrently:<br/>full gate incl. dead-code pass<br/>distinct-model checker grades code against proposal]
+        P3 -- red or blocking, rounds left --> FIX[Fix round: gate failure<br/>+ verify report together] --> P3
+        P3 -- not converging / out of rounds --> GATE1
+        P3 -- spec wrong --> GATE1
+        P3 -- green + clean/warnings --> P5[Archive]
+        P5 --> P6[Merge lane: merge trunk in,<br/>rerun full gate only if the tree changed]
         P6 -- red --> FIX
-        P6 -- green --> GATE2[["Gate 2 (human)<br/>approve squash-merge"]]
+        P6 -- green or unchanged tree --> GATE2[["Gate 2 (human)<br/>approve squash-merge"]]
     end
 
     GATE1 --> RESUME[Human clarifies -> resumes]
@@ -127,9 +124,10 @@ For read-only discovery with no artifacts written:
 
 1. **Routing** — resolves local mode, external-store mode, or prompts once. Recomputed
    from repo state on every invocation; not cached. See [SKILL.md § Step 1](SKILL.md).
-2. **Autonomous run** — Propose (with critique) → Apply → Check → Verify → Archive →
-   Merge lane, with fix rounds and tier escalation handled automatically. No approval
-   between phases.
+2. **Autonomous run** — Propose (with critique) → Apply → Check + Verify (concurrent) →
+   Archive → Merge lane, with fix rounds and tier escalation handled automatically. No
+   approval between phases. The merge lane reruns the full gate only when merging trunk
+   changed the tree the gate already passed on.
 3. **Gate 1** (conditional) — raised if critique or Verify cannot converge, or the request
    is ambiguous. Requires clarification before the change resumes.
 4. **Gate 2** (once, at completion) — diffstat, gate log, and verify report presented for

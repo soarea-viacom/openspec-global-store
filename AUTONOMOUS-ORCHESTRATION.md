@@ -67,9 +67,11 @@ proposed → applying → checking → verified → archived → ready-to-merge 
 plus `blocked` (see bug triage below). State lives in
 `<store>/.orchestration/state/<change>.yaml`:
 `phase`, `propose_rounds`, `last_critique_result`, `prev_critique_result`,
-`fix_attempts`, `last_gate_result`, `last_verify_result`,
+`fix_attempts`, `last_gate_result`, `gate_tree`, `last_verify_result`,
 `prev_verify_result`, `initiative`, `depends_on`, `seams`, `follows`,
-`supersedes`, `blocked_on`. The `prev_*` fields are written by `state set`
+`supersedes`, `blocked_on`. `gate_tree` is written by `gate run --mode full`
+itself, only when the gate passes: the git tree id it ran on. The `prev_*`
+fields are written by `state set`
 itself whenever a real `last_*_result` is overwritten — by a new result or
 by the `""` written before a recheck; overwriting an empty value shifts
 nothing — so the orchestrator never sets them.
@@ -121,8 +123,10 @@ append`, never edited after the fact.
    <name>`) reads the originating request, the draft delta spec, the seam
    list, and the codebase — never the proposer's transcript — and judges
    the draft on five standards. If the project mapped one or more skills to
-   `critic` (**Project-skill stage mapping**), each of them also reads the
-   same inputs and reports alongside this checker — not instead of it.
+   `critic` (**Project-skill stage mapping**), each of them is dispatched
+   **concurrently** with this checker, reads the same inputs, and reports
+   alongside it — not instead of it; the step waits for all of them and
+   merges the reports.
    - **Fidelity**: every part of the request is covered, nothing beyond it
      is added.
    - **Seams are real**: each named file exists, is where that behavior
@@ -165,8 +169,14 @@ append`, never edited after the fact.
    and commits — never while a worker is still writing.
 5. **Check** — run the project's *full* gate
    (`orchestration.gate_full`, parallelized if the project's test runner
-   supports it). The full gate must include the project's **dead-code
-   pass** — `knip` for JS/TS, `vulture` for Python, the ecosystem's
+   supports it) **and dispatch Verify (step 6) at the same time**: both
+   only read the tree the orchestrator just committed, so neither waits
+   for the other (`next` returns `check` with `also: verify` and the
+   checker's `also_model`). Record both results as they land. The pass
+   line is unchanged — green *and* clean — so this costs at most one
+   partly wasted checker call on a red gate and saves a full checker
+   latency on every change. The full gate must include the project's
+   **dead-code pass** — `knip` for JS/TS, `vulture` for Python, the ecosystem's
    equivalent otherwise — reporting unused files, unused exports and
    unused dependencies as one red result. Agents leave abandoned work
    behind: an approach tried and replaced, a dependency pulled in for an
@@ -175,18 +185,23 @@ append`, never edited after the fact.
    the proposal, not the whole graph. Only a graph tool in the gate does.
    Its red is a normal fix round, triaged to `mechanical`: delete what it
    names.
-   - Red: a **fix round** (see below). Out of rounds → **Gate 1**: ask the
-     human with the failure.
-   - Green: continue to verify.
-6. **Verify** — a checker with a fresh context and a model distinct from
+   - Red: a **fix round** (see below). If Verify has already reported, the
+     fixer gets the gate failure *and* the verify report and fixes both in
+     that one round; a verify result of `spec` gates immediately instead,
+     and the convergence test on the verify count applies as under green.
+     Out of rounds → **Gate 1**: ask the human with the failure.
+   - Green: act on the Verify result below; if it is not in yet, wait for it.
+6. **Verify** — dispatched together with step 5. A checker with a fresh
+   context and a model distinct from
    whichever one last wrote code for the change (`scripts/run-change model
    verify --store <slug> --name <name>` — see the generator/checker split
    under Model/effort routing) reads the proposal and the branch diff and
    judges whether the code satisfies the proposal. It never sees the
    implementer's transcript. If the project mapped one or more skills to
-   `test` (**Project-skill stage mapping**), each of them also reads the
-   proposal and diff and reports alongside this checker — not instead of
-   it. It writes a **verify report** to
+   `test` (**Project-skill stage mapping**), each of them is dispatched
+   **concurrently** with this checker, reads the proposal and diff, and
+   reports alongside it — not instead of it; the step waits for all of
+   them and merges the reports. It writes a **verify report** to
    `<store>/.orchestration/state/<name>.verify.md`, overwritten each
    round, and sets `last_verify_result` per the **Checker loops** rules
    below. Every finding names the proposal requirement, the `file:line`,
@@ -210,9 +225,15 @@ append`, never edited after the fact.
    --project <path> --name <name>`: acquire the project's single
    merge lock, merge current trunk into the branch (`origin/<trunk>` when
    the project has a remote, the local trunk when it has none; trunk is
-   `origin/HEAD`, else local `main`, else `master`), rerun the full gate.
-   Red → a fix round (same budget). Green → **Gate 2**: ask the human
-   with a summary (diffstat, gate log, verify report).
+   `origin/HEAD`, else local `main`, else `master`), then rerun the full
+   gate — **unless the merged tree is identical to the one the last
+   passing full gate ran on** (`gate_tree` in the state file, recorded by
+   `gate run --mode full` itself), in which case the rerun is skipped and
+   the command says so: same tree, same deterministic result. Trunk having
+   moved, or an Archive commit that touched the worktree (local mode),
+   changes the tree and forces the rerun. Red → a fix round (same
+   budget). Green or skipped → **Gate 2**: ask the human with a summary
+   (diffstat, gate log, verify report).
 9. **Merged** — on approval, squash-merge into trunk (one commit, with the
    trailers below), remove the workspace, release the slot. If the change
    belongs to an initiative, record the commit on it first:
@@ -300,7 +321,9 @@ scripts/run-change next --store <slug> --name <change>
 
 prints one step — `action`, `tier`, resolved `model`, the `set_phase` to
 record when the step completes, and the `reason` (which rule fired) — from
-the change's state file and session log alone. Actions: `propose`,
+the change's state file and session log alone. On `check` it adds `also:
+verify` and `also_model: <id>`: a second, read-only step to dispatch
+concurrently with the first, never a replacement for it. Actions: `propose`,
 `critique`, `revise`, `apply`, `check`, `fix`, `verify`, `sweep`,
 `archive`, `merge-lane`, `gate1`, `gate2`, `wait`, `done`. The caps
 (`FIX_CAP`, `PROPOSE_CAP`), the fix-round tier ladder, the pass line, and

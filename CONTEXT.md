@@ -58,15 +58,18 @@
   (`orchestration.model_<tier>`) if set, else the default table in
   `model_for_tier` (`scripts/lib.sh`) — the only place a specific model id
   is hardcoded in the engine.
-- **Generator/checker split**: the rule that a checker's model must
-  differ from the generator whose output it judges. Two instances:
-  Verify's checker vs. the implementer (`implementer_model` reads the last
+- **Generator/checker split**: the rule that a checker runs one tier
+  above the generator whose output it judges — `mechanical < standard <
+  deep < max` — dropping to the tier below only when the generator is
+  already at `max`. Two instances: Verify's checker vs. the implementer
+  (`implementer_tier`/`implementer_model` read the last
   `applying`/`checking` session entry) and Propose's critic vs. the
-  proposer (`proposer_model` reads the last `proposed` entry). Both go
-  through `checker_model` (`scripts/lib.sh`): resolve `standard`'s model,
-  escalate to `deep`'s on collision, error if both collapse to the
-  generator's id; `mechanical` is never a candidate. Exposed as
+  proposer (`proposer_tier`/`proposer_model` read the last `proposed`
+  entry). Both go through `checker_pick` (`scripts/lib.sh`), which errors
+  if the chosen tier resolves to the generator's own model id. Exposed as
   `scripts/run-change model verify|critic --store <slug> --name <change>`.
+- **Tier ladder**: `mechanical`, `standard`, `deep`, `max`, weakest first
+  (`TIERS` in `scripts/lib.sh`). `max` is reached only as a checker tier.
 - **Critique report**: `<store>/.orchestration/state/<change>.critique.md`,
   written by the Propose critic, overwritten each round. Each finding
   names the spec section or seam, the defect, and what would satisfy it.

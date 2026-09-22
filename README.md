@@ -55,7 +55,7 @@ flowchart TD
         P1c -- blocking, rounds left --> P1
         P1c -- clean/warnings --> P2[Apply: implement per seam,<br/>quick gate + commit each wave]
         P1c -- not converging / out of rounds --> GATE1[["Gate 1 (human)<br/>clarify the request"]]
-        P2 --> P3[Check + Verify, concurrently:<br/>full gate incl. dead-code pass<br/>distinct-model checker grades code against proposal]
+        P2 --> P3[Check + Verify, concurrently:<br/>full gate incl. dead-code pass<br/>checker one tier above the implementer grades code against proposal]
         P3 -- red or blocking, rounds left --> FIX[Fix round: gate failure<br/>+ verify report together] --> P3
         P3 -- not converging / out of rounds --> GATE1
         P3 -- spec wrong --> GATE1
@@ -161,6 +161,7 @@ orchestration:
   model_mechanical: claude-haiku-4-5-20251001   # optional overrides
   model_standard: claude-sonnet-5
   model_deep: claude-opus-5
+  model_max: claude-fable-5-1        # checker tier for deep-tier work
   stage_skills:                      # optional — route to the project's own skills
     plan: project-spec-drafter       # replaces the default drafter
     critic: [project-code-review]    # runs in addition to the default checker

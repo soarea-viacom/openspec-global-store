@@ -158,25 +158,37 @@ check "stage-skills get returns both test-stage skills" test "$out" = "project-t
 project-contract-checker"
 check_out "stage-skills get is empty for an unmapped stage" "" $RC stage-skills get --store teststore --stage apply
 
-# generator/checker split: verify must use a model distinct from the implementer's
-check_out "model verify with no history uses standard default" "claude-sonnet-5" $RC model verify --store teststore --name feat-verify
+# generator/checker split: the checker is one tier above the generator
+check_out "model get knows the max tier" "claude-fable-5-1" $RC model get --store teststore --tier max
+check_out "model verify with no history assumes a standard implementer -> deep" "claude-opus-5-custom" $RC model verify --store teststore --name feat-verify
 $RC session append --store teststore --name feat-verify role worker phase applying tier standard model claude-sonnet-5 transcript_id t1
-check_out "model verify escalates to deep on collision" "claude-opus-5-custom" $RC model verify --store teststore --name feat-verify
+check_out "model verify picks the tier above the implementer" "claude-opus-5-custom" $RC model verify --store teststore --name feat-verify
+$RC session append --store teststore --name feat-infer role worker phase applying model claude-sonnet-5 transcript_id t1
+check_out "model verify infers the tier from the model when an entry has none" "claude-opus-5-custom" $RC model verify --store teststore --name feat-infer
 cat >> "$STORE/openspec/config.yaml" <<'EOF'
   model_standard: "claude-opus-5-custom"
 EOF
+check_out "model verify errors when a tier-less entry's model maps to no tier" "cannot tell which tier" bash -c "$RC model verify --store teststore --name feat-infer 2>&1; true"
 $RC session append --store teststore --name feat-verify role worker phase applying tier deep model claude-opus-5-custom transcript_id t2
-check_out "model verify errors when every tier collapses" "no model distinct" bash -c "$RC model verify --store teststore --name feat-verify 2>&1; true"
+check_out "model verify for a deep implementer goes to max" "claude-fable-5-1" $RC model verify --store teststore --name feat-verify
+cat >> "$STORE/openspec/config.yaml" <<'EOF'
+  model_max: "claude-opus-5-custom"
+EOF
+check_out "model verify errors when the tier above resolves to the implementer's model" "resolves to the implementer's own model" bash -c "$RC model verify --store teststore --name feat-verify 2>&1; true"
 
-# generator/checker split at Propose: critic must differ from the proposer
+# generator/checker split at Propose: the critic is one tier above the proposer
 $RC state init --store teststore --name feat-critic
 check_out "state init has propose_rounds" "propose_rounds: 0" $RC state get --store teststore --name feat-critic
 $RC session append --store teststore --name feat-critic role worker phase proposed tier deep model claude-opus-5-custom transcript_id t1
-check_out "model critic errors when standard collides with proposer and deep is the same" "no model distinct from proposer" bash -c "$RC model critic --store teststore --name feat-critic 2>&1; true"
+check_out "model critic errors when max resolves to the proposer's model" "resolves to the proposer's own model" bash -c "$RC model critic --store teststore --name feat-critic 2>&1; true"
 $RC session append --store teststore --name feat-critic role worker phase proposed tier deep model some-other-model transcript_id t2
-check_out "model critic uses standard when distinct from proposer" "claude-opus-5-custom" $RC model critic --store teststore --name feat-critic
+check_out "model critic uses max for a deep proposer" "claude-opus-5-custom" $RC model critic --store teststore --name feat-critic
 $RC session append --store teststore --name feat-critic role worker phase applying tier standard model claude-opus-5-custom transcript_id t3
 check_out "model critic ignores non-proposed entries" "claude-opus-5-custom" $RC model critic --store teststore --name feat-critic
+$RC session append --store teststore --name feat-critic role worker phase proposed tier max model claude-fable-5-1 transcript_id t4
+check_out "model critic for a max proposer drops to deep, the second highest" "claude-opus-5-custom" $RC model critic --store teststore --name feat-critic
+$RC session append --store teststore --name feat-critic role worker phase proposed tier max model claude-opus-5-custom transcript_id t5
+check_out "model critic errors when deep resolves to a max proposer's model" "resolves to the proposer's own model" bash -c "$RC model critic --store teststore --name feat-critic 2>&1; true"
 
 # initiatives: own record, own critique-round counter, shown as a tree in status
 check "initiative init creates file" $RC initiative init --store teststore --name init-a
@@ -190,7 +202,7 @@ check_out "status shows initiative tree" "init-a" $RC status --store teststore
 check_out "status shows started child phase" "feat-a" $RC status --store teststore
 check_out "status shows unstarted child" "not-started" $RC status --store teststore
 $RC session append --store teststore --name init-a role worker phase proposed tier deep model claude-opus-5-custom transcript_id t9
-check_out "model critic works for an initiative name" "no model distinct from proposer" bash -c "$RC model critic --store teststore --name init-a 2>&1; true"
+check_out "model critic works for an initiative name" "resolves to the proposer's own model" bash -c "$RC model critic --store teststore --name init-a 2>&1; true"
 check_out "initiative merged refuses unlisted child" "not a child" bash -c "$RC initiative merged --store teststore --name init-a --child feat-zzz --commit abc 2>&1; true"
 $RC initiative merged --store teststore --name init-a --child feat-a --commit abc1234
 check_out "initiative merged records sha" "merged: feat-a=abc1234" $RC initiative get --store teststore --name init-a
@@ -204,8 +216,11 @@ N="$RC next --store teststore --name feat-next"
 $RC state init --store teststore --name feat-next
 check_out "next: fresh change -> propose at deep" "action: propose" $N
 check_out "next: propose model is deep" "model: claude-opus-5-custom" $N
-$RC session append --store teststore --name feat-next role worker phase proposed tier deep model claude-opus-5-custom transcript_id p1
+$RC session append --store teststore --name feat-next role worker phase proposed tier deep model claude-opus-5-plain transcript_id p1
 check_out "next: draft exists -> critique" "action: critique" $N
+check_out "next: critique of a deep draft runs at max" "tier: max" $N
+$RC session append --store teststore --name feat-next role worker phase proposed tier max model claude-fable-5-1 transcript_id p2
+check_out "next: critique of a max draft runs at deep" "tier: deep" $N
 $RC state set --store teststore --name feat-next last_critique_result blocking:2
 check_out "next: blocking critique -> revise round 1" "action: revise" $N
 $RC state set --store teststore --name feat-next last_critique_result blocking:2
@@ -235,7 +250,8 @@ check_out "next: red gate out of rounds -> gate1" "action: gate1" $N
 $RC state set --store teststore --name feat-next last_gate_result green fix_attempts 0
 check_out "next: green gate unverified -> verify" "action: verify" $N
 $RC session append --store teststore --name feat-next role worker phase applying tier standard model claude-sonnet-5 transcript_id a1
-check_out "next: verify model differs from implementer" "model: claude-opus-5-custom" $N
+check_out "next: verify model is the tier above the implementer" "model: claude-opus-5-custom" $N
+check_out "next: verify of a standard implementer runs at deep" "tier: deep" $N
 $RC state set --store teststore --name feat-next last_verify_result blocking:3
 check_out "next: blocking verify -> fix round" "action: fix" $N
 check_out "next: first blocking result has no prev" "prev_verify_result: \"\"" $RC state get --store teststore --name feat-next

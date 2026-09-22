@@ -98,7 +98,7 @@ gate_command() {
   ' "$cfg" 2>/dev/null || true
 }
 
-# model_for_tier <store-slug> <tier> -> model id for mechanical|standard|deep
+# model_for_tier <store-slug> <tier> -> model id for mechanical|standard|deep|max
 # (the `none` tier runs no model — it's plain bash bookkeeping). Reads
 # orchestration.model_<tier> from the store's config first; falls back to
 # the default table below when unset. The default table is the only place
@@ -123,6 +123,7 @@ model_for_tier() {
     mechanical) echo "claude-haiku-4-5-20251001" ;;
     standard)   echo "claude-sonnet-5" ;;
     deep)       echo "claude-opus-5" ;;
+    max)        echo "claude-fable-5-1" ;;
     *)          echo "unknown tier: $tier" >&2; return 1 ;;
   esac
 }
@@ -252,14 +253,14 @@ session_append() {
   echo "$line" >> "$f"
 }
 
-# last_model_for_phases <store-slug> <change-name> <phase-regex> -> the
-# model id of the most recent session entry whose phase matches, empty if
-# none. The session log is the only record of who wrote what.
-last_model_for_phases() {
+# last_session_field <store-slug> <change-name> <phase-regex> <field> -> that
+# field of the most recent session entry whose phase matches, empty if none.
+# The session log is the only record of who wrote what, and at which tier.
+last_session_field() {
   local f; f="$(session_log_path "$1" "$2")"
   [ -f "$f" ] || return 0
   grep -E "phase=($3)" "$f" 2>/dev/null | tail -n1 \
-    | grep -o 'model=[^ ]*' | cut -d= -f2 || true
+    | grep -o "$4=[^ ]*" | cut -d= -f2 || true
 }
 
 # advisor_calls <store-slug> <change-name> -> count of role=advisor session
@@ -282,39 +283,66 @@ advisor_calls_for() {
   grep 'role=advisor' "$f" | grep -c "for=$3\( \|$\)" || true
 }
 
-# implementer_model <store-slug> <change-name> -> model of the most recent
-# applying/checking entry (the code currently on the branch).
-implementer_model() { last_model_for_phases "$1" "$2" 'applying|checking'; }
+# The implementer is whoever last wrote code (applying/checking entries);
+# the proposer is whoever drafted the current delta spec (proposed entries).
+implementer_model() { last_session_field "$1" "$2" 'applying|checking' model; }
+implementer_tier()  { last_session_field "$1" "$2" 'applying|checking' tier; }
+proposer_model()    { last_session_field "$1" "$2" 'proposed' model; }
+proposer_tier()     { last_session_field "$1" "$2" 'proposed' tier; }
 
-# proposer_model <store-slug> <change-name> -> model of the most recent
-# proposed entry (whoever drafted the current delta spec + seam list).
-proposer_model() { last_model_for_phases "$1" "$2" 'proposed'; }
+# Tier ladder, weakest first. checker_pick walks it; nothing else orders tiers.
+TIERS="mechanical standard deep max"
 
-# checker_model <store-slug> <generator-model> <label> -> a model id
-# guaranteed distinct from the generator's, for the generator/checker split.
-# Baseline tier is `standard`; on collision escalate to `deep` rather than
-# let a model review its own work. `mechanical` is never a candidate: too
-# weak to judge a spec or a diff against one. Errors if standard and deep
-# collapse to the generator's model (a store misconfiguration).
-checker_model() {
-  local slug="$1" gen="$2" label="$3"
-  local candidate; candidate="$(model_for_tier "$slug" standard)"
-  if [ -n "$gen" ] && [ "$candidate" = "$gen" ]; then
-    candidate="$(model_for_tier "$slug" deep)"
-  fi
-  if [ -n "$gen" ] && [ "$candidate" = "$gen" ]; then
-    echo "no model distinct from $label ($gen) available — check orchestration.model_* in $(store_config "$slug")" >&2
-    return 1
-  fi
-  echo "$candidate"
+# tier_of_model <store-slug> <model> -> the tier that resolves to this model,
+# empty if none does. Only for session entries written without a tier.
+tier_of_model() {
+  local t
+  for t in $TIERS; do
+    [ "$(model_for_tier "$1" "$t")" = "$2" ] && { echo "$t"; return 0; }
+  done
+  return 0
 }
 
-# verify_model: checker for the Verify step, distinct from the implementer.
-verify_model() { checker_model "$1" "$(implementer_model "$1" "$2")" implementer; }
+# checker_pick <store-slug> <gen-tier> <gen-model> <label> -> "<tier> <model>"
+# for the generator/checker split. The checker is the tier one ABOVE the
+# generator's: the review is done by a stronger model than the one whose
+# work it grades. Only when the generator already sits at the top tier,
+# where no stronger one exists, does the tier one BELOW review instead.
+# Either way the checker's model must differ from the generator's — a model
+# is a weak reviewer of its own output — so a store whose config maps that
+# neighbouring tier onto the generator's model is an error, never a silent
+# same-model review or a quiet drop to a weaker tier.
+checker_pick() {
+  local slug="$1" gtier="$2" gen="$3" label="$4"
+  if [ -z "$gtier" ] && [ -n "$gen" ]; then gtier="$(tier_of_model "$slug" "$gen")"; fi
+  [ -n "$gtier" ] || { echo "cannot tell which tier $label ($gen) ran at — session entries must record tier" >&2; return 1; }
+  local ladder=($TIERS) i idx=-1
+  for i in "${!ladder[@]}"; do [ "${ladder[$i]}" = "$gtier" ] && idx=$i; done
+  [ "$idx" -ge 0 ] || { echo "unknown tier '$gtier' for $label" >&2; return 1; }
+  local cand=$((idx + 1)); [ "$cand" -lt "${#ladder[@]}" ] || cand=$((idx - 1))
+  local t="${ladder[$cand]}" m; m="$(model_for_tier "$slug" "$t")"
+  [ "$m" != "$gen" ] && { echo "$t $m"; return 0; }
+  echo "checker tier $t resolves to the $label's own model ($gen) — check orchestration.model_* in $(store_config "$slug")" >&2
+  return 1
+}
 
-# critic_model: checker for the Propose critique, distinct from the proposer.
-# Propose runs at deep, so this normally resolves to standard's model.
-critic_model() { checker_model "$1" "$(proposer_model "$1" "$2")" proposer; }
+# With no session history at all the generator is assumed at its nominal
+# tier: implementers at standard, proposers at deep (Propose always runs
+# there). An entry with a model but no tier is inferred, not defaulted.
+verify_pick() {
+  local t m; t="$(implementer_tier "$1" "$2")"; m="$(implementer_model "$1" "$2")"
+  [ -n "$t$m" ] || t=standard
+  checker_pick "$1" "$t" "$m" implementer
+}
+critic_pick() {
+  local t m; t="$(proposer_tier "$1" "$2")"; m="$(proposer_model "$1" "$2")"
+  [ -n "$t$m" ] || t=deep
+  checker_pick "$1" "$t" "$m" proposer
+}
+verify_model() { verify_pick "$1" "$2" | cut -d' ' -f2; }
+verify_tier()  { verify_pick "$1" "$2" | cut -d' ' -f1; }
+critic_model() { critic_pick "$1" "$2" | cut -d' ' -f2; }
+critic_tier()  { critic_pick "$1" "$2" | cut -d' ' -f1; }
 
 # --- next_action: the orchestration policy as one function -----------------
 # next_action <store-slug> <change-name> prints the single next step for a
@@ -326,7 +354,7 @@ critic_model() { checker_model "$1" "$(proposer_model "$1" "$2")" proposer; }
 #   set_phase phase to record once the step completes (absent = unchanged)
 #   reason    the rule that produced this answer
 #   also      a second, read-only step to dispatch concurrently (only on
-#   also_model  `check`: Verify, with its distinct-model id)
+#   also_model  `check`: Verify, with its tier-above model id)
 # Every threshold here mirrors a rule in AUTONOMOUS-ORCHESTRATION.md; if
 # they ever disagree, the doc is wrong and this is right, because this is
 # what runs. Read-only: the orchestrator does the step and records results.
@@ -373,7 +401,7 @@ next_action() {
           if [ -z "$(proposer_model "$slug" "$name")" ]; then
             emit propose deep "$(model_for_tier "$slug" deep)" "no draft yet: Propose always runs at deep"
           else
-            emit critique standard "$(critic_model "$slug" "$name")" "draft exists, not yet critiqued: distinct-model critic"
+            emit critique "$(critic_tier "$slug" "$name")" "$(critic_model "$slug" "$name")" "draft exists, not yet critiqued: critic one tier above the proposer"
           fi ;;
         clean|warnings:*)
           emit apply standard "$(model_for_tier "$slug" standard)" "critique passed ($crit); warnings swept at mechanical in place" applying ;;
@@ -413,7 +441,7 @@ next_action() {
         green)
           case "$verify" in
             "")
-              emit verify standard "$(verify_model "$slug" "$name")" "gate green, not yet verified: distinct-model checker" ;;
+              emit verify "$(verify_tier "$slug" "$name")" "$(verify_model "$slug" "$name")" "gate green, not yet verified: checker one tier above the implementer" ;;
             clean)
               emit archive none - "verified clean" verified ;;
             warnings:*)

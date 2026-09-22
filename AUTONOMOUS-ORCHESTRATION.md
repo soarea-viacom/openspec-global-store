@@ -118,9 +118,10 @@ append`, never edited after the fact.
 
    **Critique** — nothing downstream can catch a wrong spec, because Apply
    builds to it and Verify grades against it. So before the spec is
-   committed, a critic with a fresh context and a model distinct from the
+   committed, a critic with a fresh context and a model one tier above the
    proposer's (`scripts/run-change model critic --store <slug> --name
-   <name>`) reads the originating request, the draft delta spec, the seam
+   <name>`; see the generator/checker split under Model/effort routing)
+   reads the originating request, the draft delta spec, the seam
    list, and the codebase — never the proposer's transcript — and judges
    the draft on five standards. If the project mapped one or more skills to
    `critic` (**Project-skill stage mapping**), each of them is dispatched
@@ -192,7 +193,7 @@ append`, never edited after the fact.
      Out of rounds → **Gate 1**: ask the human with the failure.
    - Green: act on the Verify result below; if it is not in yet, wait for it.
 6. **Verify** — dispatched together with step 5. A checker with a fresh
-   context and a model distinct from
+   context and a model one tier above
    whichever one last wrote code for the change (`scripts/run-change model
    verify --store <slug> --name <name>` — see the generator/checker split
    under Model/effort routing) reads the proposal and the branch diff and
@@ -327,7 +328,7 @@ concurrently with the first, never a replacement for it. Actions: `propose`,
 `critique`, `revise`, `apply`, `check`, `fix`, `verify`, `sweep`,
 `archive`, `merge-lane`, `gate1`, `gate2`, `wait`, `done`. The caps
 (`FIX_CAP`, `PROPOSE_CAP`), the fix-round tier ladder, the pass line, and
-the distinct-model checker rules all live in `next_action`
+the tier-above checker rule all live in `next_action`
 (`scripts/lib.sh`), so the orchestration is deterministic code and the
 agent's job is the step itself: dispatch the worker `next` names, then
 record what happened (`state set ... last_gate_result green|red`,
@@ -446,7 +447,7 @@ each other forever.
 
 ### Critique beyond the spec
 
-Wherever a deep-tier model generates an artifact, a distinct model
+Wherever a deep-tier model generates an artifact, a `max`-tier model
 critiques it before anything is built on it. The delta spec is one case;
 the others:
 
@@ -458,7 +459,7 @@ the others:
   hours later; each child is small enough to be a single change. Log the
   author's session entry under the initiative's name (`session append
   --name <initiative> phase proposed`), so `model critic --name
-  <initiative>` resolves a distinct model without new machinery. Rounds
+  <initiative>` resolves the tier above without new machinery. Rounds
   and the last result live on the initiative record (`scripts/run-change
   initiative set --store <slug> --name <initiative> critique_rounds <n>
   last_critique_result <value>`), cap 2, same values as a change's
@@ -482,30 +483,43 @@ Pick a tier per task, not per session:
   dead code and unused dependencies the gate's dead-code pass names,
   commit message drafting, first-round red-gate triage (flake vs lint vs
   type vs dead code vs logic).
-- `standard`: ordinary implementation tasks, tests, verify reports (subject
-  to the generator/checker override below — verify's model must differ
-  from the implementer's, even if that means a tier it wouldn't otherwise need).
+- `standard`: ordinary implementation tasks, tests.
 - `deep`: Propose (drafting the delta spec and seam list, every change, not
   just initiative decomposition), design docs, anything touching an
-  invariant, fix rounds 2 and 3.
+  invariant, fix rounds 2 and 3, and Verify of a `standard` implementer.
+- `max`: the strongest model available. Never a task tier: it is reached
+  only as the checker of a `deep` generator (the critic of every Propose,
+  Verify after a deep fix round).
 
 Specify/Plan (Propose) and Execute (Apply) are handled by the tiers above.
 The two checkers — Propose's critic and Verify — are different: they
-aren't sized by how hard the check is, but by whether they're independent
-of whoever produced the thing being checked. A model is a weak
-reviewer of its own output, so Verify runs in a fresh context (proposal,
-diff, prior report — not the implementer's or fixer's transcript) and
-never reuses the implementer's model — `scripts/run-change model verify --store <slug> --name <change>`
-resolves `standard`'s model, and if that collides with the model the last
-`applying`/`checking` session-history entry recorded, escalates to
-`deep`'s model instead. `model critic` does the same against the last
-`proposed` entry; since Propose runs at `deep`, the critic normally lands
-on `standard`'s model. Use these commands' output for the checker steps,
-not `model get --tier standard` directly.
+aren't sized by how hard the check is, but by who produced the thing being
+checked. **The checker is the tier one above the generator's.** A model is
+a weak reviewer of its own output, and a weaker model is a weak reviewer
+of a stronger one's, so the review always goes up the ladder
+`mechanical < standard < deep < max`: a `standard` implementer is verified
+at `deep`, a `deep` proposer is critiqued at `max`. Only when the
+generator already sits at `max`, where nothing stronger exists, does the
+tier one below (`deep`, the second strongest) review instead. In every
+case the checker's model must differ from the generator's; if the store's
+`model_*` config maps that neighbouring tier onto the generator's own
+model, the command errors rather than review with the same model or drop
+quietly to a weaker tier. The generator's tier is read from its session
+entry (`tier=` on the last `applying`/`checking` entry for Verify, the
+last `proposed` entry for the critic); an entry without a tier is inferred
+from its model against the tier table, and with no history at all the
+implementer is assumed `standard` and the proposer `deep`.
+`scripts/run-change model verify|critic --store <slug> --name <change>`
+apply this rule; `next` reports the resulting tier and model on its
+`critique` and `verify` actions. Use these commands' output for the
+checker steps, not `model get` directly. Both checkers run in a fresh
+context (proposal, diff or draft, prior report — never the generator's
+transcript).
 
 Each tier maps to a concrete model, resolved via `scripts/run-change model
 get --store <slug> --tier <tier>` — the store's `openspec/config.yaml`
-(`orchestration.model_mechanical` / `model_standard` / `model_deep`) if
+(`orchestration.model_mechanical` / `model_standard` / `model_deep` /
+`model_max`) if
 set, else the engine's default table (`model_for_tier` in
 `scripts/lib.sh`):
 
@@ -514,6 +528,7 @@ set, else the engine's default table (`model_for_tier` in
 | `mechanical` | `claude-haiku-4-5-20251001` |
 | `standard`   | `claude-sonnet-5`           |
 | `deep`       | `claude-opus-5`             |
+| `max`        | `claude-fable-5-1`          |
 
 `none` runs no model — it's plain bash bookkeeping (`scripts/run-change`
 itself), never a task dispatched to an agent.
@@ -563,8 +578,8 @@ for review, and a round that fails the convergence test under **Checker
 loops** gates at once. Escalation is by round number: round 1 mechanical/standard by
 triage, round 2 standard, round 3 deep, then Gate 1. Each fixer logs a
 session entry with `phase checking` before Verify reruns, so `model verify`
-sees the fixer as the latest implementer and picks a different model to
-re-check its work. A worker that fails its own check once retries one tier
+sees the fixer as the latest implementer and picks the tier above it to
+re-check its work (a round-3 `deep` fixer is verified at `max`). A worker that fails its own check once retries one tier
 up before it counts as a fix round — but before failing, it may ask an
 advisor (below). Record
 `model` and `tier` on every session-history entry — resolve the model with

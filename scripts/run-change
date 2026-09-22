@@ -17,7 +17,7 @@ usage: run-change <command> [args]
   workspace create --store <slug> --project <path> --name <change>
   workspace remove  --store <slug> --project <path> --name <change>
   gate run       --store <slug> --project <path> --name <change> --mode quick|full
-  model get      --store <slug> --tier mechanical|standard|deep
+  model get      --store <slug> --tier mechanical|standard|deep|max
   model verify   --store <slug> --name <change>
   model critic   --store <slug> --name <change>
   stage-skills get --store <slug> --stage plan|critic|test

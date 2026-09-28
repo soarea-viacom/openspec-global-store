@@ -106,6 +106,28 @@ ln -s "$(pwd)" ~/.claude/skills/openspec-orchestrator
 
 A plain copy works as well; it requires re-copying after updates.
 
+### Preparing a target project
+
+Before running the skill on a project for the first time, check the things the engine
+depends on but cannot fix for you:
+
+- **Gate runtime.** The full gate runs once per Check and again in the merge lane when
+  the tree changed. Measure how long it takes and whether the test runner parallelizes.
+  Parallelize it once shared-state tests are confirmed safe, pinning the ones that are not
+  to serial rather than dropping parallelism everywhere.
+- **Quick gate.** Have a cheap lint / type-check / last-failed-tests command available for
+  `gate_quick`; the full suite belongs in `gate_full` (see Configuration).
+- **Workspace cost.** Each change gets its own git worktree under the store's
+  `.orchestration/workspaces/` (the engine adds the ignore rule itself). Confirm
+  dependencies can be installed or linked into a fresh worktree cheaply, and that
+  validation scripts do not assume real directories where a symlink may appear (`find -H`).
+- **Protected paths.** Note any tree that must never be modified (generated-and-committed
+  files, secrets, fixture inputs) so the proposal can state it as a constraint.
+- **Existing approval policy.** If the repository already gates commits, merges or pushes,
+  make sure Gate 2 does not duplicate it. Optionally enforce Gate 2 deterministically with
+  a pre-execution hook that intercepts commit/merge/push on the main checkout's trunk and
+  requires approval, while allowing everything rooted under the workspace directory.
+
 ## Usage
 
 Invoke from inside, or pointed at, a target project:

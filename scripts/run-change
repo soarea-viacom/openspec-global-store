@@ -228,6 +228,7 @@ phase: proposed
 propose_rounds: 0
 last_critique_result: ""
 prev_critique_result: ""
+acceptance: ""
 fix_attempts: 0
 last_gate_result: ""
 gate_tree: ""

@@ -1,6 +1,6 @@
 ---
 name: openspec-orchestrator
-description: Spec-driven development workflow (propose a delta spec before touching code, implement against the approved proposal with tests, archive into the living spec). Routes OpenSpec artifacts to whichever root fits the project — an already-existing local openspec/ folder (used as-is, always takes priority), or an external store when there is no local folder, asking the user which to use for a project that has neither. When routed externally, the target project's directory and git history are otherwise untouched by OpenSpec. Always runs autonomously — the whole change end to end, asking the human only when something is wrong; there is no step-by-step mode. Use when the user wants to add/change a feature under spec control, invokes /sdd:explore for read-only discovery, or asks to orchestrate/route OpenSpec locally or to an external store.
+description: Spec-driven development workflow (propose a delta spec before touching code, implement against the approved proposal with tests, archive into the living spec). Routes OpenSpec artifacts to whichever root fits the project — an already-existing local openspec/ folder (used as-is, always takes priority), or an external store when there is no local folder, asking the user which to use for a project that has neither. When routed externally, the target project's directory and git history are otherwise untouched by OpenSpec. Always runs autonomously through Propose/Apply/Archive, but always pauses once per proposal round — before any code is written — for the human to accept a short resume of what is about to be implemented (or ask for the full proposal, or request changes, which redrafts and shows a new resume); beyond that mandatory pause it asks the human only when something is wrong, and there is no other step-by-step mode. Use when the user wants to add/change a feature under spec control, invokes /sdd:explore for read-only discovery, or asks to orchestrate/route OpenSpec locally or to an external store.
 ---
 
 # OpenSpec Orchestrator
@@ -54,7 +54,7 @@ Every root this skill operates on — local or external — is a registered Open
 
 ## Step 3 — Execution workflow (OpenSpec 3-Phase Engine, routed to the resolved root)
 
-These three phases are the shape of every change. They are never run one at a time with a review stop in between — see **Autonomous only** below for how they are driven.
+These three phases are the shape of every change. Propose and Apply are separated by exactly one mandatory human checkpoint (Gate 0 — accept the short resume before any code is written); beyond that, the phases are never run one at a time with additional review stops — see **Autonomous only** below for how they are driven.
 
 Every OpenSpec CLI call below gets `--store <slug>` appended — e.g. `openspec instructions --store <slug>`, `openspec new change <name> --store <slug>`, `openspec status/validate/show/list --store <slug>`, `openspec archive <name> --store <slug>`. This is unchanged by local vs. external mode — `--store <slug>` always resolves to whichever root Step 1 picked, since local mode registers the project itself under that slug. What differs is only where that root physically is: in external mode the OpenSpec artifacts (proposals, deltas, specs, tasks) land under `~/openspec-stores/<slug>/`, never under the project; in local mode they land under the project's own `openspec/`, by the user's choice recorded in Step 1. The "apply" phase's actual code edits always happen in the project directory as normal (Read/Edit/Write on project files), independent of which mode is active.
 
@@ -84,21 +84,33 @@ above, no project skill involved.
 
 This skill has exactly one execution mode. Invoking it on a change means:
 run all three phases end to end, with gates, the auto-fix loop and the
-merge lane, and ask the human only if something is wrong. Follow
+merge lane — with exactly one mandatory pause. Follow
 [AUTONOMOUS-ORCHESTRATION.md](AUTONOMOUS-ORCHESTRATION.md) for the exact
-procedure; it asks the human at most twice per change, and only when
-something is blocked or failing — never for routine approval between
-phases.
+procedure.
 
-There is no step-by-step or "review after each phase" mode, and none may be
-improvised: do not stop after a proposal, an implementation or an archive
-to wait for a go-ahead, even if the request is phrased as a single phase
-("just draft the proposal", "only apply"). Treat such a request as the
-whole change and run it; if the human genuinely wants to stop early, they
-say so and the change is left `blocked` per the orchestration doc. The
-only command that is not a full run is `/sdd:explore`, which is read-only
-discovery and writes nothing — it precedes a change, it is not a phase of
-one.
+**Gate 0 — proposal acceptance (always fires, before any code exists):**
+once Propose drafts a delta spec that passes critique, the flow stops and
+shows the human a short resume of what is about to be implemented, plus an
+offer to read the full proposal. Apply never starts without an explicit
+accept. Reading the full proposal is not itself an accept — the human
+still answers accept-or-revise afterward. A request for changes restarts
+Propose with that feedback as new context, reruns critique, and ends in a
+new short resume — the same gate, not a one-time checkpoint. This loop has
+no round cap: it repeats until the human accepts, and nothing downstream
+of Gate 0 ever runs against an unaccepted proposal.
+
+Beyond Gate 0, the flow asks the human only when something is blocked or
+failing (Gate 1) or right before merge (Gate 2) — never for other routine
+approval between phases. There is no step-by-step or "review after each
+phase" mode beyond the one mandatory pause above, and none may be
+improvised: do not add extra stops after Apply or Archive to wait for a
+go-ahead, even if the request is phrased as a single phase ("just draft
+the proposal", "only apply"). Treat such a request as the whole change and
+run it, subject to Gate 0; if the human genuinely wants to stop early
+beyond that, they say so and the change is left `blocked` per the
+orchestration doc. The only command that is not a full run is
+`/sdd:explore`, which is read-only discovery and writes nothing — it
+precedes a change, it is not a phase of one.
 
 ## Optional convenience
 

@@ -3,10 +3,15 @@
 Rule document for running OpenSpec changes. It is the **only** execution
 mode of the `openspec-orchestrator` skill: whenever the skill is invoked on
 a change, read this doc and run the three phases in [SKILL.md](SKILL.md) end
-to end, asking the human only if something is wrong. The human never has to
-say "run autonomously" — that is always assumed, and there is no
-step-by-step alternative to fall back to. Stopping between phases to wait
-for approval is a bug, not a mode.
+to end, asking the human only if something is wrong — plus exactly one
+mandatory checkpoint that always fires regardless of whether anything is
+wrong: **Gate 0**, after a clean critique and before any code is written
+(Phases, step 3). The human never has to say "run autonomously" — that is
+always assumed, and there is no step-by-step alternative to fall back to.
+Stopping between phases to wait for approval is a bug everywhere except
+Gate 0. Gate 0 is not optional and not a mode of its own — it is a
+required step of every change, it repeats on every revision round, and it
+has no cap: the flow cannot reach Apply without an explicit human accept.
 
 The reader of this doc, the state files, and the scripts it drives is
 another agent in a later session, not a human. Comments and state exist to
@@ -61,15 +66,20 @@ git-backed folder). Everything below is userland, built from plain files.
 ## Phases
 
 ```
-proposed → applying → checking → verified → archived → ready-to-merge → merged
+proposed → awaiting-acceptance → applying → checking → verified → archived → ready-to-merge → merged
 ```
 
-plus `blocked` (see bug triage below). State lives in
+plus `blocked` (see bug triage below). A `revise` answer at
+`awaiting-acceptance` sends `phase` back to `proposed` (see Gate 0 below) —
+the only backward edge in the diagram. State lives in
 `<store>/.orchestration/state/<change>.yaml`:
 `phase`, `propose_rounds`, `last_critique_result`, `prev_critique_result`,
-`fix_attempts`, `last_gate_result`, `gate_tree`, `last_verify_result`,
-`prev_verify_result`, `initiative`, `depends_on`, `seams`, `follows`,
-`supersedes`, `blocked_on`. `gate_tree` is written by `gate run --mode full`
+`acceptance`, `fix_attempts`, `last_gate_result`, `gate_tree`,
+`last_verify_result`, `prev_verify_result`, `initiative`, `depends_on`,
+`seams`, `follows`, `supersedes`, `blocked_on`. `acceptance` holds Gate 0's
+pending human answer — `""` (waiting), `accepted`, or `revise` — and is
+cleared back to `""` every time it is acted on, by whichever step consumes
+it. `gate_tree` is written by `gate run --mode full`
 itself, only when the gate passes: the git tree id it ran on. The `prev_*`
 fields are written by `state set`
 itself whenever a real `last_*_result` is overwritten — by a new result or
@@ -146,7 +156,8 @@ append`, never edited after the fact.
    there:
    - `clean` or `warnings:<m>` — pass. Warnings are fixed in place at the
      mechanical tier, no re-critique. Commit the spec and seam list on the
-     branch, continue.
+     branch, then set `phase: awaiting-acceptance` and go to **Gate 0**
+     below — Apply never starts on a draft the human hasn't accepted.
    - `blocking:<n>` — the proposer (same `deep` tier) revises only what the
      findings name, logs another `proposed` entry, and the critic reruns
      with the prior report. `propose_rounds` counts these, cap 2. Out of
@@ -155,9 +166,50 @@ append`, never edited after the fact.
    - `request` — the originating request is itself contradictory or too
      ambiguous to draft against. → **Gate 1** immediately.
 
-   This is the one place autonomous mode may ask a human before code
-   exists. The same critique, same standards where they apply, runs on
-   every other deep-tier artifact — see **Critique beyond the spec** below.
+   `blocking` and `request` reach a human through Gate 1 only when the
+   critic itself could not get the draft clean. Gate 0 below is the
+   opposite case — a draft the critic passed — and it still always asks:
+   passing the critic is not the same as the human wanting this built. The
+   same critique, same standards where they apply, runs on every other
+   deep-tier artifact — see **Critique beyond the spec** below.
+
+   **Gate 0 — proposal acceptance.** `phase: awaiting-acceptance`, driven
+   by the `acceptance` field (`""` pending, `accepted`, `revise`), no round
+   cap. While `acceptance` is empty, `next` returns `action: gate0`:
+   nothing downstream is dispatched, and repeating `next` with no state
+   change is expected here — the missing input is a human answer, not a
+   computation. On this action:
+   1. Draft a **short resume** — a few sentences, not the delta spec —
+      of what is about to be implemented, and show it to the human.
+   2. In the same turn, offer to show the full proposal
+      (`openspec show <name> --store <slug>`) and ask whether to accept or
+      request changes. Showing the full proposal is not itself an answer —
+      still get an accept-or-revise after it.
+   3. Record the answer:
+      - **Accept** — `scripts/run-change state set --store <slug> --name
+        <name> acceptance accepted`. `next` then returns `apply` with
+        `set_phase: applying` and clears `acceptance` back to `""`, so a
+        later revision of this same change starts Gate 0 clean.
+      - **Request changes** — write what the human wants changed to
+        `<store>/.orchestration/state/<name>.feedback.md` (overwritten
+        each round, same convention as the critique/verify reports), then
+        `state set ... acceptance revise`. `next` returns `propose` at the
+        `deep` tier with `set_phase: proposed`. Before dispatching it,
+        clear `last_critique_result`, `prev_critique_result`,
+        `propose_rounds`, and `acceptance` back to `""` — this is a full
+        restart of step 3 above, not a patch: the proposer drafts again
+        from the original request *and* the feedback file, the critic
+        reruns against the new draft, and a clean result lands back at
+        `awaiting-acceptance` with a new short resume. Gate 0 is not a
+        one-time checkpoint — it fires again on every round, with no cap,
+        until the human accepts.
+
+   Gate 0 never runs the fixer, the fix-round budget, or the convergence
+   test under **Checker loops** — those exist for a checker finding, and a
+   request for changes here is a human choosing a different draft, not a
+   defect report. It never skips, either: a change that already cleared
+   Gate 0 once and comes back for a `revise` round goes through it again,
+   in full, on the new draft.
 4. **Apply** — implement in dispatch groups, one per seam from the Propose
    step's seam list (see model/effort tiers below). Before fanning groups
    out, run the disjoint-files check below; a change too small to have
@@ -325,7 +377,7 @@ record when the step completes, and the `reason` (which rule fired) — from
 the change's state file and session log alone. On `check` it adds `also:
 verify` and `also_model: <id>`: a second, read-only step to dispatch
 concurrently with the first, never a replacement for it. Actions: `propose`,
-`critique`, `revise`, `apply`, `check`, `fix`, `verify`, `sweep`,
+`critique`, `revise`, `gate0`, `apply`, `check`, `fix`, `verify`, `sweep`,
 `archive`, `merge-lane`, `gate1`, `gate2`, `wait`, `done`. The caps
 (`FIX_CAP`, `PROPOSE_CAP`), the fix-round tier ladder, the pass line, and
 the tier-above checker rule all live in `next_action`
@@ -390,7 +442,9 @@ critique checks.
   against every other in-flight child for that project.
 - Gate 2 is per child by default. The first Gate 2 of an initiative may
   offer "approve this merge and let remaining green children merge
-  autonomously." Gate 1 always asks.
+  autonomously." Gate 0 and Gate 1 always ask, per child — Gate 0's
+  short-resume acceptance is never batched across children, even when a
+  later Gate 2 is.
 - `scripts/run-change status` shows the initiative tree — critique rounds
   and result, then each child in merge order with its phase and blocker,
   `not-started` if it has no state file yet, or `merged <sha>` once its
@@ -398,8 +452,9 @@ critique checks.
 - **Gates are orchestrator-owned.** Whether a child runs as a separate
   resumed session or as a subagent dispatched live by one orchestrator
   session, only the orchestrator talks to the human. A child that hits a
-  Gate 1 or Gate 2 condition escalates the finding (phase, gate log,
-  diffstat, verify report) up to the orchestrator and stops; it never
+  Gate 0, Gate 1, or Gate 2 condition escalates (resume/finding, phase,
+  gate log, diffstat, verify report as applicable) up to the orchestrator
+  and stops; it never
   prompts the human itself. This keeps N concurrent children from producing
   N uncoordinated interruptions and preserves the single-voice approval
   flow the gates are built around.
@@ -440,8 +495,10 @@ each other forever.
   report and the orchestrator acts on it.
 - **Unconditional, by design.** The pattern is usually reserved for
   changes worth a senior review. Here it runs on every change, because in
-  autonomous mode nobody reads the diff or the spec before Gate 2 — the
-  checker *is* the senior review, not an addition to it. Cost is controlled
+  autonomous mode nobody reads the diff before Gate 2 — the human's read of
+  the spec at Gate 0 is a short resume by default, not a line-by-line
+  review — so the checker *is* the senior review, not an addition to it.
+  Cost is controlled
   by the tier (a `standard` model, one pass when the output is right) and
   by the pass line above, not by skipping the check.
 

@@ -348,7 +348,9 @@ critic_tier()  { critic_pick "$1" "$2" | cut -d' ' -f1; }
 # next_action <store-slug> <change-name> prints the single next step for a
 # change, derived only from its state file and session log — never from
 # chat memory. Output is key: value lines:
-#   action    what to do (see the doc's lifecycle; gate1/gate2 = ask human)
+#   action    what to do (see the doc's lifecycle; gate0/gate1/gate2 = ask
+#             human — gate0 always fires, once per proposal round, before
+#             Apply; gate1/gate2 only on trouble or before merge)
 #   tier      effort tier for the step, or none
 #   model     resolved model id, or - for none-tier steps
 #   set_phase phase to record once the step completes (absent = unchanged)
@@ -365,7 +367,7 @@ next_action() {
   local slug="$1" name="$2"
   local f="$(state_root "$slug")/$name.yaml"
   [ -f "$f" ] || { echo "no state for change $name in store $slug" >&2; return 1; }
-  local phase crit pcrit prounds gate verify pverify fixes blocked
+  local phase crit pcrit prounds gate verify pverify fixes blocked accept
   phase="$(state_field "$f" phase)"
   crit="$(state_field "$f" last_critique_result)"
   pcrit="$(state_field "$f" prev_critique_result)"
@@ -375,6 +377,7 @@ next_action() {
   pverify="$(state_field "$f" prev_verify_result)"
   fixes="$(state_field "$f" fix_attempts)"; fixes="${fixes:-0}"
   blocked="$(state_field "$f" blocked_on)"
+  accept="$(state_field "$f" acceptance)"
 
   emit() { # emit action tier model reason [set_phase]
     printf 'action: %s\ntier: %s\nmodel: %s\n' "$1" "$2" "$3"
@@ -404,7 +407,7 @@ next_action() {
             emit critique "$(critic_tier "$slug" "$name")" "$(critic_model "$slug" "$name")" "draft exists, not yet critiqued: critic one tier above the proposer"
           fi ;;
         clean|warnings:*)
-          emit apply standard "$(model_for_tier "$slug" standard)" "critique passed ($crit); warnings swept at mechanical in place" applying ;;
+          emit gate0 none - "critique passed ($crit); warnings swept at mechanical in place: ask the human to accept a short resume before Apply" awaiting-acceptance ;;
         blocking:*)
           if not_converging "$crit" "$pcrit"; then
             emit gate1 none - "critique not converging: $pcrit -> $crit, blocking count did not fall; spending remaining rounds would repeat it"
@@ -416,6 +419,16 @@ next_action() {
         request)
           emit gate1 none - "critique says the request itself is contradictory or ambiguous" ;;
         *) echo "unknown last_critique_result '$crit'" >&2; return 1 ;;
+      esac ;;
+    awaiting-acceptance)
+      case "$accept" in
+        "")
+          emit gate0 none - "waiting on the human: show the short resume, offer the full proposal, and get accept or request-changes" ;;
+        accepted)
+          emit apply standard "$(model_for_tier "$slug" standard)" "human accepted the proposal" applying ;;
+        revise)
+          emit propose deep "$(model_for_tier "$slug" deep)" "human requested changes: restart Propose with the feedback file as new context; clear last_critique_result, prev_critique_result, propose_rounds and acceptance first, then critique reruns and a new resume is shown at Gate 0" proposed ;;
+        *) echo "unknown acceptance '$accept' (expected accepted|revise)" >&2; return 1 ;;
       esac ;;
     applying)
       emit apply standard "$(model_for_tier "$slug" standard)" "implement dispatch groups; quick gate + commit per wave; then record phase checking" checking ;;

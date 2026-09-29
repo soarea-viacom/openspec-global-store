@@ -64,6 +64,7 @@ check "no engine function without a caller${dead:+ (dead:$dead)}" test -z "$dead
 # state
 check "state init creates file" $RC state init --store teststore --name feat-a
 check_out "state get returns phase" "phase: proposed" $RC state get --store teststore --name feat-a
+check_out "state init has empty acceptance" 'acceptance: ""' $RC state get --store teststore --name feat-a
 $RC state set --store teststore --name feat-a phase applying blocked_on fix-b
 check_out "state set updates phase" "phase: applying" $RC state get --store teststore --name feat-a
 check_out "state set upserts new-style pair" "blocked_on: fix-b" $RC state get --store teststore --name feat-a
@@ -232,9 +233,27 @@ check_out "next: blocking critique at cap -> gate1" "action: gate1" $N
 $RC state set --store teststore --name feat-next last_critique_result request propose_rounds 0
 check_out "next: request finding -> gate1" "action: gate1" $N
 $RC state set --store teststore --name feat-next last_critique_result warnings:1
-check_out "next: critique passed -> apply" "action: apply" $N
-check_out "next: apply sets phase applying" "set_phase: applying" $N
-$RC state set --store teststore --name feat-next phase applying
+check_out "next: critique passed -> gate0" "action: gate0" $N
+check_out "next: gate0 sets phase awaiting-acceptance" "set_phase: awaiting-acceptance" $N
+$RC state set --store teststore --name feat-next phase awaiting-acceptance
+check_out "next: awaiting-acceptance with no answer -> gate0 again" "action: gate0" $N
+
+# Gate 0: a human "revise" answer restarts Propose; a fresh draft naturally
+# lands back at critique (proposer_model is no longer empty), then Gate 0
+# fires again on the new draft, then "accepted" reaches Apply.
+$RC state set --store teststore --name feat-next acceptance revise
+check_out "next: human requests changes -> propose (restart)" "action: propose" $N
+check_out "next: revise restarts propose at deep" "tier: deep" $N
+check_out "next: revise sets phase back to proposed" "set_phase: proposed" $N
+$RC state set --store teststore --name feat-next phase proposed acceptance "" last_critique_result "" propose_rounds 0
+$RC session append --store teststore --name feat-next role worker phase proposed tier deep model claude-opus-5-plain transcript_id p3
+check_out "next: restarted draft exists -> critique again" "action: critique" $N
+$RC state set --store teststore --name feat-next last_critique_result clean
+check_out "next: second round critique clean -> gate0 again" "action: gate0" $N
+$RC state set --store teststore --name feat-next phase awaiting-acceptance acceptance accepted
+check_out "next: human accepts -> apply" "action: apply" $N
+check_out "next: accept sets phase applying" "set_phase: applying" $N
+$RC state set --store teststore --name feat-next phase applying acceptance ""
 check_out "next: applying -> apply then checking" "set_phase: checking" $N
 $RC state set --store teststore --name feat-next phase checking
 check_out "next: checking with no gate result -> check" "action: check" $N

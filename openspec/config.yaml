@@ -32,7 +32,7 @@ schema: spec-driven
 #         - Summarize the archive outcome before finishing
 
 # Autonomous orchestration (optional, read by scripts/run-change in the
-# openspec-global-store engine — see AUTONOMOUS-ORCHESTRATION.md there).
+# openspec-orchestrator engine — see AUTONOMOUS-ORCHESTRATION.md there).
 # Single rule: this block lives ONLY in a store's openspec/config.yaml.
 # Target projects must not contain an openspec/ folder at all — run-change
 # refuses any project that does.
@@ -43,7 +43,7 @@ schema: spec-driven
 #     gate_full: "npm test && npx knip"
 # gate_full must include the project's dead-code pass (knip, vulture, ...):
 # tests cannot see the abandoned helpers and unused deps agents leave.
-# This store gates its own engine scripts with tests/run.sh, whose
+# This orchestrator gates its own engine scripts with tests/run.sh, whose
 # no-caller function scan is the dead-code pass for bash.
 orchestration:
   concurrency: 1

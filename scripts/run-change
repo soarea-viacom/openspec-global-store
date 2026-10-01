@@ -17,11 +17,13 @@ usage: run-change <command> [args]
   workspace create --store <slug> --project <path> --name <change>
   workspace remove  --store <slug> --project <path> --name <change>
   gate run       --store <slug> --project <path> --name <change> --mode quick|full
+  gate run       --store <slug> --project <path> --mode full --trunk
   model get      --store <slug> --tier mechanical|standard|deep|max
   model verify   --store <slug> --name <change>
   model critic   --store <slug> --name <change>
   stage-skills get --store <slug> --stage plan|critic|test
   merge-lane run --store <slug> --project <path> --name <change>
+  tasks open     --store <slug> --name <change>
   state init|get|set --store <slug> --name <change> [key value ...]
   initiative init|get|set --store <slug> --name <initiative> [key value ...]
   initiative merged --store <slug> --name <initiative> --child <change> --commit <sha>
@@ -35,8 +37,9 @@ EOF
 }
 
 parse_opts() {
-  # Fills STORE, PROJECT, NAME, MODE, SLOT, TIER, STAGE from remaining args.
-  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""; CHILD=""; COMMIT=""; WORKER=""; STAGE=""
+  # Fills STORE, PROJECT, NAME, MODE, SLOT, TIER, STAGE, TRUNK from remaining
+  # args. TRUNK is a bare flag (0/1), not a --key value pair.
+  STORE=""; PROJECT=""; NAME=""; MODE=""; SLOT=""; TIER=""; CHILD=""; COMMIT=""; WORKER=""; STAGE=""; TRUNK=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --worker) WORKER="$2"; shift 2 ;;
@@ -49,6 +52,7 @@ parse_opts() {
       --slot) SLOT="$2"; shift 2 ;;
       --tier) TIER="$2"; shift 2 ;;
       --stage) STAGE="$2"; shift 2 ;;
+      --trunk) TRUNK=1; shift ;;
       *) shift ;;
     esac
   done
@@ -59,7 +63,7 @@ parse_opts() {
 kv_args() {
   PAIRS=()
   while [ $# -gt 0 ]; do
-    case "$1" in --store|--project|--name|--mode|--slot|--tier|--stage|--child|--commit|--worker) shift 2 ;; *) PAIRS+=("$1"); shift ;; esac
+    case "$1" in --store|--project|--name|--mode|--slot|--tier|--stage|--child|--commit|--worker) shift 2 ;; --trunk) shift ;; *) PAIRS+=("$1"); shift ;; esac
   done
 }
 
@@ -128,11 +132,41 @@ cmd_workspace_remove() {
   git -C "$PROJECT" branch -D "change/$NAME" 2>/dev/null || true
 }
 
+# Trunk preflight: runs gate_full against a detached worktree of trunk_ref
+# so a pre-existing red trunk is caught before any change opens, instead of
+# turning into a mid-run detour on whichever change happens to touch it
+# first. Never writes state (gate_tree belongs to a change's own tree, not
+# trunk's), never needs --name (no change exists yet), and always cleans
+# the temporary worktree up via an EXIT trap, green or red.
+cmd_gate_run_trunk() {
+  [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$MODE" ] || usage
+  guard_project_openspec "$STORE" "$PROJECT"
+  local gcmd; gcmd="$(gate_command "$STORE" "$MODE")"
+  [ -n "$gcmd" ] || { echo "no orchestration.gate_${MODE} configured in $(store_config "$STORE")" >&2; return 1; }
+  local ref; ref="$(trunk_ref "$PROJECT")"
+  local wsdir; wsdir="$(orchestration_dir "$STORE")/workspaces"
+  mkdir -p "$wsdir"
+  ensure_workspace_ignored "$STORE"
+  local tmp; tmp="$(mktemp -d "$wsdir/trunk-preflight.XXXXXX")"
+  rmdir "$tmp"
+  trap "$(printf 'git -C %q worktree remove --force %q >/dev/null 2>&1 || true; git -C %q worktree prune >/dev/null 2>&1 || true' "$PROJECT" "$tmp" "$PROJECT")" EXIT
+  git -C "$PROJECT" worktree add --detach "$tmp" "$ref" >&2
+  local status=0
+  ( cd "$tmp" && eval "$gcmd" ) || status=$?
+  [ "$status" -eq 0 ] || echo "trunk $ref is red under gate_full: exit $status" >&2
+  return "$status"
+}
+
 # The gate runs in the change's worktree — the tree that actually holds the
 # branch's code. The project's main checkout is trunk and would pass or fail
 # for reasons unrelated to the change.
 cmd_gate_run() {
   parse_opts "$@"
+  if [ "$TRUNK" = 1 ]; then
+    local trunk_status=0
+    cmd_gate_run_trunk || trunk_status=$?
+    return "$trunk_status"
+  fi
   [ -n "$STORE" ] && [ -n "$PROJECT" ] && [ -n "$NAME" ] && [ -n "$MODE" ] || usage
   guard_project_openspec "$STORE" "$PROJECT"
   local gcmd; gcmd="$(gate_command "$STORE" "$MODE")"
@@ -160,12 +194,14 @@ cmd_model_verify() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
   verify_model "$STORE" "$NAME"
+  checker_inputs verify "$STORE" "$NAME"
 }
 
 cmd_model_critic() {
   parse_opts "$@"
   [ -n "$STORE" ] && [ -n "$NAME" ] || usage
   critic_model "$STORE" "$NAME"
+  checker_inputs critic "$STORE" "$NAME"
 }
 
 cmd_stage_skills_get() {
@@ -188,22 +224,7 @@ cmd_merge_lane_run() {
     sleep 1
   done
   trap 'rmdir "'"$lock"'" 2>/dev/null || true' EXIT
-  local trunk
-  # || true: pipefail would abort the script before the fallback below
-  # whenever origin/HEAD is unset (e.g. remote added without a fetch).
-  trunk="$(git -C "$PROJECT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##' || true)"
-  if [ -z "$trunk" ]; then
-    local t
-    for t in main master; do
-      git -C "$PROJECT" rev-parse --verify -q "refs/heads/$t" >/dev/null && { trunk="$t"; break; }
-    done
-  fi
-  [ -n "$trunk" ] || { echo "cannot determine trunk for $PROJECT: no origin/HEAD and no local main or master" >&2; return 1; }
-  # Merge the remote-tracking trunk when the project has one; a local-only
-  # project (no remote) merges its local trunk instead. Never invent a
-  # remote ref that doesn't exist — that would fail late with a git error.
-  local ref="origin/$trunk"
-  git -C "$PROJECT" rev-parse --verify -q "refs/remotes/$ref" >/dev/null || ref="$trunk"
+  local ref; ref="$(trunk_ref "$PROJECT")"
   local wt; wt="$(workspace_path "$STORE" "$NAME")"
   git -C "$wt" merge "$ref" --no-edit
   local sf="$(state_root "$STORE")/$NAME.yaml" tree
@@ -213,6 +234,33 @@ cmd_merge_lane_run() {
     return 0
   fi
   cmd_gate_run --store "$STORE" --project "$PROJECT" --name "$NAME" --mode full
+}
+
+# tasks open: prints every unchecked tasks.md line for a change and records
+# the count as manual_tasks_open so next_action can block archive on it —
+# the engine owns the count; a hand-counted value is not trusted to guard
+# `archive --yes`.
+cmd_tasks_open() {
+  parse_opts "$@"
+  [ -n "$STORE" ] && [ -n "$NAME" ] || usage
+  local dir
+  dir="$(change_dir "$STORE" "$NAME")" || { echo "no change directory found for $NAME in store $STORE" >&2; return 1; }
+  local sf="$(state_root "$STORE")/$NAME.yaml"
+  [ -f "$sf" ] || cmd_state_init --store "$STORE" --name "$NAME"
+  local tasks="$dir/tasks.md"
+  if [ ! -f "$tasks" ]; then
+    echo "no tasks.md for $NAME"
+    state_write "$sf" manual_tasks_open 0
+    return 0
+  fi
+  local n=0 line
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^[[:space:]]*'- [ ]' ]]; then
+      echo "$line"
+      n=$((n + 1))
+    fi
+  done < "$tasks"
+  state_write "$sf" manual_tasks_open "$n"
 }
 
 cmd_state_init() {
@@ -234,6 +282,9 @@ last_gate_result: ""
 gate_tree: ""
 last_verify_result: ""
 prev_verify_result: ""
+lifecycle: full
+manual_tasks_open: ""
+manual_accept: ""
 initiative: ""
 depends_on: []
 seams: []
@@ -438,6 +489,7 @@ case "$group $sub" in
   "model critic") cmd_model_critic "$@" ;;
   "stage-skills get") cmd_stage_skills_get "$@" ;;
   "merge-lane run") cmd_merge_lane_run "$@" ;;
+  "tasks open") cmd_tasks_open "$@" ;;
   "state init") cmd_state_init "$@" ;;
   "state get") cmd_state_get "$@" ;;
   "state set") cmd_state_set "$@" ;;

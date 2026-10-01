@@ -2,5 +2,6 @@
   "1.0.0": "Initial Atlas catalog release of the openspec-orchestrator skill.",
   "1.1.0": "Move external OpenSpec store convention to ~/.local/share/openspec/stores/<slug> instead of ~/openspec-stores/<slug>, matching the CLI's own registry location.",
   "1.2.0": "Add a fast path for simple, non-breaking fixes that skips extended Propose exploration and drafts straight to critique; present a gate's fixed-choice answer (e.g. Gate 0's accept/revise) as a structured choice (buttons) when the host interface supports one.",
-  "1.2.1": "No content change; recording via atlas bump going forward instead of hand-editing releases.json."
+  "1.2.1": "No content change; recording via atlas bump going forward instead of hand-editing releases.json.",
+  "1.3.0": "Add a trunk preflight gate before any change opens, block archive on unchecked tasks until the human ticks them or accepts unverified requirements, add a light lifecycle for fast-path fixes, and give the critic and Verify a fixed input contract."
 }

@@ -108,14 +108,50 @@
   concurrently). The
   agent does the step and records results; it never re-derives the
   lifecycle from prose. Caps live beside it: `FIX_CAP`, `PROPOSE_CAP`,
-  `ADVISOR_CAP`.
+  `ADVISOR_CAP`. Its action set includes `tasks-open` (records the
+  manual-task count and `set_phase: verified`, the step that must run
+  before `archive` is ever returned) and `gate2-manual` (the manual-task
+  block at `verified` — see **Manual tasks** above).
 - **Gate**: the project's quick or full check command
   (`orchestration.gate_quick` / `gate_full` in the *store's*
   `openspec/config.yaml` — single rule: a target project must not contain
-  an `openspec/` folder; the engine refuses one that does). The full gate
+  an `openspec/` folder; the engine refuses one that does). `gate_quick`
+  should stay under ~30 s — it runs once per dispatch wave; anything
+  slower belongs in `gate_full`, which runs once per Check. The full gate
   includes the project's dead-code pass (`knip`, `vulture`, or
   equivalent); for this engine that is the no-caller function scan in
   `tests/run.sh`.
+- **Trunk preflight**: `scripts/run-change gate run --store <slug>
+  --project <path> --mode full --trunk` — runs `gate_full` in a temporary
+  detached worktree of the trunk ref, writes no state, and removes the
+  worktree whether the gate passes or fails. Runs before `slot acquire`
+  and `workspace create` (SKILL.md Step 0 check 4); red, or `gate_full`
+  unconfigured, stops the flow and opens no change.
+- **Lifecycle**: the state field `lifecycle`, `full` or `light` (empty
+  reads as `full`; any other value errors). Under `light`, Propose and
+  `revise` run at `standard` instead of `deep` (the critic still resolves
+  one tier above, to `deep`); a green gate with `warnings:<m>` skips the
+  mechanical sweep instead of running it. Everything else, including Gate
+  0, is unchanged. Set only by triage on the bugfix change it opens, or by
+  the human through Gate 0's "Accept — light lifecycle" option — never by
+  the orchestrator for any other change.
+- **Manual tasks**: `scripts/run-change tasks open --store <slug> --name
+  <change>` prints the change's unchecked `- [ ]` task lines and records
+  their count as the state field `manual_tasks_open` (an explicit `0` when
+  none are open, `""` when never counted). At phase `verified`, a count
+  greater than 0 with `manual_accept` empty blocks archive with action
+  `gate2-manual`; the human ticks tasks (the orchestrator edits tasks.md
+  and reruns `tasks open`) or records `manual_accept:
+  accepted:<requirement>[;<requirement>...]` naming the requirements left
+  unverified. `openspec archive --yes` runs only when the recorded count
+  is `0` or `manual_accept` is set, never otherwise.
+- **Checker input contract**: the fixed set of inputs `model critic` and
+  `model verify` print as `input:` lines after the bare model id — critic:
+  request, draft, seam list, prior report; Verify: proposal, seam list,
+  branch diff, prior report. Both read no state file to produce this; the
+  seam-list line names the field rather than resolving it. Other files are
+  read only to confirm a seam is real or a dependency claim true, never to
+  explore the codebase at large.
 - **Gate tree**: the `gate_tree` state field — the git tree id the last
   *passing* full gate ran on, written by `gate run --mode full` itself.
   The merge lane compares it to the tree after merging trunk in and skips

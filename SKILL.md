@@ -23,7 +23,9 @@ Run these checks in order, before resolving a slug or creating any store. Each c
 2. **Sane working directory:** verify the cwd is a real target project — not a store's own root registered under a *different* project (Step 1 below covers a store that legitimately points back at this same project) and not a bare `~/.local/share/openspec/stores/<slug>` checkout opened on its own. Refuse to orchestrate a store-for-a-store.
 3. **Git repository:** the project must be a git repo with at least one commit on a trunk branch — the store's slug falls back to the directory name without a remote (Step 1), but every change branch, worktree, gate and merge in this skill hangs off the project's own git history and cannot exist without it. If `git -C . rev-parse --git-dir` fails, run `git init -b main` in the project; if the repo then has no commit (fresh init, or an empty folder holding a first idea), stage whatever is there and make the initial commit (`git add -A && git commit --allow-empty -m "Initial commit"`). Do this **before any work** — before the store is resolved, before a proposal is drafted — so the first idea a user brings to an empty folder lands in a repo that can carry a `change/<name>` branch. This is the one write under the project root this skill makes in external-store mode; local mode (Step 1) makes one more (`.openspec-store/store.yaml`). `scripts/run-change workspace create` performs the same init deterministically (`ensure_project_git` in `scripts/lib.sh`) so the engine never fails on a missing repo either.
 
-Only when all three pass, continue to Step 1.
+Only when checks 1–3 pass, continue to Step 1 — they gate Step 1 itself. Check 4 below gates opening any change, not Step 1; it needs the store resolved first, so it runs after Step 2, before `slot acquire` or `workspace create`.
+
+4. **Trunk preflight:** after Step 2 resolves the store, before `slot acquire` or `workspace create` for any change, run the trunk preflight — `gate run --mode full --trunk` — via `scripts/run-change gate run --store <slug> --project <path> --mode full --trunk`. It runs the project's `gate_full` in a temporary detached worktree of the trunk ref, never the main checkout, and writes no state. Red, or `gate_full` not configured, stops the flow: show the human the output, tell them trunk is already red and this is not the change's problem, and open no change.
 
 ## Step 1 — Resolve the artifact root: local, store, or ask
 
@@ -63,12 +65,15 @@ Every OpenSpec CLI call below gets `--store <slug>` appended — e.g. `openspec 
   - Draft explicit architectural intent into a temporary delta spec.
   - Predict potential side effects or breaking changes in downstream dependencies.
   - **Fast path for simple, non-breaking fixes:** when the request is a small, clearly non-breaking fix (e.g. a typo, a localized bug fix, no change to a public API, schema, or any contract another caller relies on), skip the extended exploration above and draft the smallest delta spec that captures the fix, then send it straight to critique. Gate 0 still fires unchanged — the human still sees and accepts the short resume before Apply starts. This path only shortens how much drafting happens before critique, never the gate itself. If, once the code is examined, the fix turns out to touch a public API, change behavior other code depends on, require a migration, or otherwise ripple outside the local fix, abandon the fast path and run full Phase 1 exploration instead.
+
+    For a request Propose classified this way, Gate 0's structured choice gains a third option, **"Accept — light lifecycle,"** beside Accept and Request changes. Light changes: drafting and revising happen at the `standard` tier (the critic still resolves one tier above, to `deep`); Apply continues the proposer's worker where the host can resume an agent, else dispatches a fresh `standard` worker; a green gate with warnings skips the sweep round instead of running it. For a change already drafted at `deep` and critiqued at `max` before this Gate 0 — because the human is only now choosing light — only that last part, the sweep skip, is left to apply. Light never skips: Gate 0 itself, the full gate (including the dead-code pass), Verify, the manual-task block, or Gate 2. Gate 0 stays mandatory either way; plain Accept runs the full lifecycle; the orchestrator never picks light on the human's behalf — only the human, here, or triage on a bugfix change it opens.
 - **Phase 2: Active Implementation**
   - Write modular, self-documenting code that maps 1:1 with the finalized proposal.
   - Implement accompanying integration or unit tests simultaneously.
 - **Phase 3: Final Consolidation**
   - Verify syntax execution and run the testing suite locally, plus the project's dead-code pass (`knip` for JS/TS, `vulture` for Python, or equivalent) — a passing suite cannot see an abandoned helper or an unused dependency this change left behind; delete what the pass names before archiving.
   - Cleanly merge finalized changes back into the store's living specs.
+  - Keep `gate_quick` under ~30 s — it runs once per dispatch wave; anything slower (the full suite, the dead-code pass) belongs in `gate_full`, which runs once per Check.
 
 Before drafting the proposal or dispatching the critique/verify checkers, check
 `scripts/run-change stage-skills get --store <slug> --stage plan|critic|test` — the
@@ -94,7 +99,10 @@ once Propose drafts a delta spec that passes critique, the flow stops and
 shows the human a short resume of what is about to be implemented, plus an
 offer to read the full proposal. Apply never starts without an explicit
 accept. Reading the full proposal is not itself an accept — the human
-still answers accept-or-revise afterward. A request for changes restarts
+still answers accept-or-revise afterward. For a proposal Propose
+classified as a fast-path fix (Step 3, Phase 1), the choice also offers a
+third option, "Accept — light lifecycle" (see Phase 1 above for what it
+changes and what it never skips). A request for changes restarts
 Propose with that feedback as new context, reruns critique, and ends in a
 new short resume — the same gate, not a one-time checkpoint. This loop has
 no round cap: it repeats until the human accepts, and nothing downstream

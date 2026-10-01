@@ -76,6 +76,88 @@ ensure_project_git() {
   fi
 }
 
+# trunk_ref <project> -> the ref to treat as trunk: origin/<trunk> when that
+# remote ref exists, else the local trunk branch; trunk itself is
+# origin/HEAD, else local main, else local master. Shared by merge-lane
+# (merges this ref into the change branch) and the trunk preflight (runs
+# gate_full against a detached worktree of this ref) so both test the same
+# commit. No fetch here — neither caller fetches either; a stale
+# origin/HEAD is the caller's problem, not this function's.
+trunk_ref() {
+  local project="$1"
+  local trunk
+  # || true: pipefail would abort the script before the fallback below
+  # whenever origin/HEAD is unset (e.g. remote added without a fetch).
+  trunk="$(git -C "$project" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##' || true)"
+  if [ -z "$trunk" ]; then
+    local t
+    for t in main master; do
+      git -C "$project" rev-parse --verify -q "refs/heads/$t" >/dev/null && { trunk="$t"; break; }
+    done
+  fi
+  [ -n "$trunk" ] || { echo "cannot determine trunk for $project: no origin/HEAD and no local main or master" >&2; return 1; }
+  # Prefer the remote-tracking trunk when the project has one; a local-only
+  # project (no remote) uses its local trunk instead. Never invent a remote
+  # ref that doesn't exist — that would fail late with a git error.
+  local ref="origin/$trunk"
+  git -C "$project" rev-parse --verify -q "refs/remotes/$ref" >/dev/null || ref="$trunk"
+  echo "$ref"
+}
+
+# change_dir <store-slug> <name> -> absolute path to the change's artifact
+# directory, resolved in order: the change's own worktree (where a branch
+# still in flight keeps its openspec/changes/<name>/), that worktree's
+# archive copy (date-prefixed — the CLI always archives under
+# YYYY-MM-DD-<name>, so a bare *-<name> glob would also match an unrelated
+# change whose name happens to end in "-<name>"), then the same two under
+# the store's own local_path (external mode keeps nothing there until
+# merge, but local mode's store IS the project, so this is where a merged
+# or hand-maintained change's artifacts actually live). More than one
+# archive match at a given base is an error, not a silent pick. No match
+# anywhere -> non-zero, caller writes nothing.
+change_dir() {
+  local slug="$1" name="$2" base d matches
+  for base in "$(workspace_path "$slug" "$name")" "$(store_path "$slug")"; do
+    d="$base/openspec/changes/$name"
+    [ -d "$d" ] && { echo "$d"; return 0; }
+    matches=("$base"/openspec/changes/archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-"$name")
+    if [ -d "${matches[0]}" ]; then
+      [ "${#matches[@]}" -eq 1 ] || { echo "more than one archived match for $name under $base" >&2; return 1; }
+      echo "${matches[0]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# checker_inputs <critic|verify> <store-slug> <name> -> static "input:"
+# lines describing the checker's input contract: it reads no file itself,
+# and the seam line names the `seams` field rather than resolving it, so
+# this also works for `model critic --name <initiative>` (an initiative has
+# no change state file to resolve against). The shared rule line is what
+# stops a checker from re-reading the whole codebase — only follow a file
+# to confirm a seam or dependency claim.
+checker_inputs() {
+  local role="$1" slug="$2" name="$3"
+  local seam_line
+  seam_line="$(printf 'input: seam list — state get --store %s --name %s, field seams\n' "$slug" "$name")"
+  case "$role" in
+    critic)
+      printf 'input: the originating request\n'
+      printf 'input: the draft delta spec (+ design.md)\n'
+      printf '%s\n' "$seam_line"
+      ;;
+    verify)
+      printf 'input: the proposal + delta spec\n'
+      printf '%s\n' "$seam_line"
+      printf 'input: the branch diff\n'
+      ;;
+    *) echo "unknown checker role '$role' (expected critic|verify)" >&2; return 1 ;;
+  esac
+  printf 'input: the prior %s report, if any\n' "$role"
+  printf 'input: read other files only to confirm a seam is real or a dependency claim is true; never explore the codebase; never the generator'"'"'s transcript\n'
+}
+
 # concurrency_cap <store-slug> -> N from the store's openspec/config.yaml
 # orchestration.concurrency, default 1.
 concurrency_cap() {
@@ -348,9 +430,12 @@ critic_tier()  { critic_pick "$1" "$2" | cut -d' ' -f1; }
 # next_action <store-slug> <change-name> prints the single next step for a
 # change, derived only from its state file and session log — never from
 # chat memory. Output is key: value lines:
-#   action    what to do (see the doc's lifecycle; gate0/gate1/gate2 = ask
-#             human — gate0 always fires, once per proposal round, before
-#             Apply; gate1/gate2 only on trouble or before merge)
+#   action    what to do (see the doc's lifecycle; gate0/gate1/gate2/
+#             gate2-manual = ask human — gate0 always fires, once per
+#             proposal round, before Apply; gate1/gate2/gate2-manual only
+#             on trouble, an open manual task, or before merge; tasks-open
+#             means run `tasks open` to record manual_tasks_open — archive
+#             only ever fires from phase verified)
 #   tier      effort tier for the step, or none
 #   model     resolved model id, or - for none-tier steps
 #   set_phase phase to record once the step completes (absent = unchanged)
@@ -368,6 +453,7 @@ next_action() {
   local f="$(state_root "$slug")/$name.yaml"
   [ -f "$f" ] || { echo "no state for change $name in store $slug" >&2; return 1; }
   local phase crit pcrit prounds gate verify pverify fixes blocked accept
+  local lifecycle lc ptier manual_open manual_accept
   phase="$(state_field "$f" phase)"
   crit="$(state_field "$f" last_critique_result)"
   pcrit="$(state_field "$f" prev_critique_result)"
@@ -378,6 +464,19 @@ next_action() {
   fixes="$(state_field "$f" fix_attempts)"; fixes="${fixes:-0}"
   blocked="$(state_field "$f" blocked_on)"
   accept="$(state_field "$f" acceptance)"
+  lifecycle="$(state_field "$f" lifecycle)"
+  lc="${lifecycle:-full}"
+  manual_open="$(state_field "$f" manual_tasks_open)"
+  manual_accept="$(state_field "$f" manual_accept)"
+  case "$lc" in
+    full) ptier=deep ;;
+    light) ptier=standard ;;
+    *) echo "unknown lifecycle '$lifecycle' (expected full|light)" >&2; return 1 ;;
+  esac
+  # Gate 0 always offers this escape hatch for a fast-path proposal; Propose
+  # is the only one who knows whether this change qualifies, and next_action
+  # has no way to ask it, so the sentence is unconditional on every gate0.
+  local gate0_light=" if Propose classified this as a fast-path fix, also offer 'Accept — light lifecycle'"
 
   emit() { # emit action tier model reason [set_phase]
     printf 'action: %s\ntier: %s\nmodel: %s\n' "$1" "$2" "$3"
@@ -402,19 +501,19 @@ next_action() {
       case "$crit" in
         "")
           if [ -z "$(proposer_model "$slug" "$name")" ]; then
-            emit propose deep "$(model_for_tier "$slug" deep)" "no draft yet: Propose always runs at deep"
+            emit propose "$ptier" "$(model_for_tier "$slug" "$ptier")" "no draft yet: Propose runs at $ptier ($lc lifecycle)"
           else
             emit critique "$(critic_tier "$slug" "$name")" "$(critic_model "$slug" "$name")" "draft exists, not yet critiqued: critic one tier above the proposer"
           fi ;;
         clean|warnings:*)
-          emit gate0 none - "critique passed ($crit); warnings swept at mechanical in place: ask the human to accept a short resume before Apply" awaiting-acceptance ;;
+          emit gate0 none - "critique passed ($crit); warnings swept at mechanical in place: ask the human to accept a short resume before Apply.$gate0_light" awaiting-acceptance ;;
         blocking:*)
           if not_converging "$crit" "$pcrit"; then
             emit gate1 none - "critique not converging: $pcrit -> $crit, blocking count did not fall; spending remaining rounds would repeat it"
           elif [ "$prounds" -ge "$PROPOSE_CAP" ]; then
             emit gate1 none - "critique still blocking after $prounds/$PROPOSE_CAP rounds: human clarifies the request"
           else
-            emit revise deep "$(model_for_tier "$slug" deep)" "critique $crit, round $((prounds + 1))/$PROPOSE_CAP: proposer revises only the named findings, then critique reruns"
+            emit revise "$ptier" "$(model_for_tier "$slug" "$ptier")" "critique $crit, round $((prounds + 1))/$PROPOSE_CAP: proposer revises only the named findings, then critique reruns"
           fi ;;
         request)
           emit gate1 none - "critique says the request itself is contradictory or ambiguous" ;;
@@ -423,11 +522,11 @@ next_action() {
     awaiting-acceptance)
       case "$accept" in
         "")
-          emit gate0 none - "waiting on the human: show the short resume, offer the full proposal, and get accept or request-changes" ;;
+          emit gate0 none - "waiting on the human: show the short resume, offer the full proposal, and get accept or request-changes.$gate0_light" ;;
         accepted)
           emit apply standard "$(model_for_tier "$slug" standard)" "human accepted the proposal" applying ;;
         revise)
-          emit propose deep "$(model_for_tier "$slug" deep)" "human requested changes: restart Propose with the feedback file as new context; clear last_critique_result, prev_critique_result, propose_rounds and acceptance first, then critique reruns and a new resume is shown at Gate 0" proposed ;;
+          emit propose "$ptier" "$(model_for_tier "$slug" "$ptier")" "human requested changes: restart Propose with the feedback file as new context; clear last_critique_result, prev_critique_result, propose_rounds and acceptance first, then critique reruns and a new resume is shown at Gate 0" proposed ;;
         *) echo "unknown acceptance '$accept' (expected accepted|revise)" >&2; return 1 ;;
       esac ;;
     applying)
@@ -456,9 +555,13 @@ next_action() {
             "")
               emit verify "$(verify_tier "$slug" "$name")" "$(verify_model "$slug" "$name")" "gate green, not yet verified: checker one tier above the implementer" ;;
             clean)
-              emit archive none - "verified clean" verified ;;
+              emit tasks-open none - "verify clean: run 'tasks open' to record manual_tasks_open, then record verified" verified ;;
             warnings:*)
-              emit sweep mechanical "$(model_for_tier "$slug" mechanical)" "verify $verify: one mechanical sweep + quick gate, no re-verify, not a round; then set last_verify_result clean" ;;
+              if [ "$lc" = light ]; then
+                emit tasks-open none - "light lifecycle: verify $verify, sweep skipped; run 'tasks open' to record manual_tasks_open, then record verified; list the warnings at Gate 2" verified
+              else
+                emit sweep mechanical "$(model_for_tier "$slug" mechanical)" "verify $verify: one mechanical sweep + quick gate, no re-verify, not a round; then set last_verify_result clean"
+              fi ;;
             blocking:*)
               if not_converging "$verify" "$pverify"; then
                 emit gate1 none - "verify not converging: $pverify -> $verify, blocking count did not fall; spending remaining rounds would repeat it"
@@ -475,11 +578,32 @@ next_action() {
         *) echo "unknown last_gate_result '$gate' (expected green|red)" >&2; return 1 ;;
       esac ;;
     verified)
-      emit archive none - "finalize artifacts and commit on the branch" archived ;;
+      if [ -z "$manual_open" ]; then
+        emit tasks-open none - "manual_tasks_open not yet counted: run 'tasks open' before archive can proceed"
+      elif [ "$manual_open" -eq 0 ] 2>/dev/null; then
+        emit archive none - "finalize artifacts and commit on the branch; --yes is allowed because the recorded manual_tasks_open count is 0" archived
+      elif [ -n "$manual_accept" ]; then
+        case "$manual_accept" in
+          accepted:)
+            echo "manual_accept 'accepted:' names no requirements" >&2; return 1 ;;
+          accepted:*)
+            emit archive none - "finalize artifacts and commit on the branch; --yes is allowed because the human accepted named unverified requirements ($manual_accept)" archived ;;
+          *) echo "unknown manual_accept '$manual_accept' (expected accepted:<requirement>[;<requirement>...])" >&2; return 1 ;;
+        esac
+      else
+        emit gate2-manual none - "manual_tasks_open: $manual_open open: show the human the open task list alongside the verify report; they tick each task then rerun 'tasks open', or record manual_accept naming the unverified requirements — never offer trying it after merge"
+      fi ;;
     archived)
       emit merge-lane none - "merge trunk in under the merge lock and rerun the full gate; green -> ready-to-merge, red -> phase checking with last_gate_result red" ready-to-merge ;;
     ready-to-merge)
-      emit gate2 none - "ask the human with diffstat, gate log, verify report; on approval squash-merge, record initiative merged, remove workspace, release slot" merged ;;
+      local light_note=""
+      [ "$lc" = light ] && light_note="; lifecycle light: also show the unswept Verify warnings"
+      case "$manual_accept" in
+        accepted:*)
+          emit gate2 none - "ask the human with diffstat, gate log, verify report; accepted unverified requirements: ${manual_accept#accepted:}${light_note}; on approval squash-merge, record initiative merged, remove workspace, release slot" merged ;;
+        *)
+          emit gate2 none - "ask the human with diffstat, gate log, verify report${light_note}; on approval squash-merge, record initiative merged, remove workspace, release slot" merged ;;
+      esac ;;
     merged)
       emit done none - "nothing left for this change" ;;
     *) echo "unknown phase '$phase'" >&2; return 1 ;;

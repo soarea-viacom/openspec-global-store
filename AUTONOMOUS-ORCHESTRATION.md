@@ -76,7 +76,8 @@ the only backward edge in the diagram. State lives in
 `phase`, `propose_rounds`, `last_critique_result`, `prev_critique_result`,
 `acceptance`, `fix_attempts`, `last_gate_result`, `gate_tree`,
 `last_verify_result`, `prev_verify_result`, `initiative`, `depends_on`,
-`seams`, `follows`, `supersedes`, `blocked_on`. `acceptance` holds Gate 0's
+`seams`, `follows`, `supersedes`, `blocked_on`, `lifecycle`,
+`manual_tasks_open`, `manual_accept`. `acceptance` holds Gate 0's
 pending human answer — `""` (waiting), `accepted`, or `revise` — and is
 cleared back to `""` every time it is acted on, by whichever step consumes
 it. `gate_tree` is written by `gate run --mode full`
@@ -84,7 +85,12 @@ itself, only when the gate passes: the git tree id it ran on. The `prev_*`
 fields are written by `state set`
 itself whenever a real `last_*_result` is overwritten — by a new result or
 by the `""` written before a recheck; overwriting an empty value shifts
-nothing — so the orchestrator never sets them.
+nothing — so the orchestrator never sets them. `lifecycle` is `full` or
+`light` (empty reads as `full`); `manual_tasks_open` is the count `tasks
+open` last recorded (`""` means never counted, a literal `0` means none
+open); `manual_accept` holds `accepted:<requirement>[;<requirement>...]`
+once the human accepts unverified requirements at the manual-task gate —
+see **Lifecycle** and **Manual tasks** in CONTEXT.md.
 Session history is a separate append-only log, one line per
 orchestrator/worker run against this change, at
 `<store>/.orchestration/state/<change>.sessions.log` (see **Session log**
@@ -92,7 +98,13 @@ in CONTEXT.md) — `role: orchestrator|worker|advisor|resume`, `phase`, `gates_h
 `transcript_id`, `model`, `tier`, written via `scripts/run-change session
 append`, never edited after the fact.
 
-1. **Slot** — `scripts/run-change slot acquire --store <slug> --project
+1. **Slot** — before anything else, run the trunk preflight: `scripts/run-change
+   gate run --store <slug> --project <path> --mode full --trunk` (SKILL.md Step 0
+   check 4). It runs `gate_full` against the trunk ref in a temporary detached
+   worktree, writes no state, and is removed whether it passes or fails. Red, or
+   `gate_full` unconfigured, stops here — show the output, tell the human trunk is
+   already red, open no change; the slot below is never acquired. Only then
+   `scripts/run-change slot acquire --store <slug> --project
    <path>` before
    starting; blocks/queues if the project's concurrency cap (N, from the
    store's `openspec/config.yaml` `orchestration.concurrency`, default 1)
@@ -104,16 +116,19 @@ append`, never edited after the fact.
    dependencies synced. A project with no repo or no commit yet (an empty
    folder the first idea landed in) is initialized first — `git init -b
    main` and an initial commit of whatever is there — by the same command
-   (`ensure_project_git`), mirroring Step 0 check 4 of SKILL.md; nothing
+   (`ensure_project_git`), mirroring Step 0 check 3 of SKILL.md; nothing
    downstream ever sees a project without a trunk. Never dispatch work against the project's main
    checkout — and every gate (`gate run ... --name <name>`) runs in the
    worktree, never in the main checkout, which is trunk and says nothing
    about the branch.
-3. **Propose** — always runs at the `deep` tier (see Model/effort routing
+3. **Propose** — runs at the `deep` tier (see Model/effort routing
    below), regardless of how small the change looks: a mistake here is the
    most expensive one, because every later phase inherits it — unless the
    project mapped its own skill to `plan` (**Project-skill stage mapping**
    under Model/effort routing), in which case that skill drafts instead.
+   Under `lifecycle: light` (see below), Propose and any `revise` round run
+   at `standard` instead — the critic still resolves one tier above, to
+   `deep`, via the generator/checker split.
    Draft the delta spec via the normal `openspec-orchestrator` propose phase, scoped
    to the workspace, `--store <slug>`. For a request that is a small, clearly
    non-breaking fix (no change to a public API, schema, or any contract
@@ -137,9 +152,13 @@ append`, never edited after the fact.
    committed, a critic with a fresh context and a model one tier above the
    proposer's (`scripts/run-change model critic --store <slug> --name
    <name>`; see the generator/checker split under Model/effort routing)
-   reads the originating request, the draft delta spec, the seam
-   list, and the codebase — never the proposer's transcript — and judges
-   the draft on five standards. If the project mapped one or more skills to
+   reads its fixed **input contract** — the originating request, the draft
+   delta spec, the seam list, and the prior critique report on round 2+ —
+   never the proposer's transcript, and never told to go explore the
+   codebase at large; it may read other files only to confirm a seam is
+   real or a dependency claim true. `model critic` prints this contract as
+   `input:` lines after the bare model id — include them verbatim in the
+   dispatch. It judges the draft on five standards. If the project mapped one or more skills to
    `critic` (**Project-skill stage mapping**), each of them is dispatched
    **concurrently** with this checker, reads the same inputs, and reports
    alongside it — not instead of it; the step waits for all of them and
@@ -150,7 +169,11 @@ append`, never edited after the fact.
      actually lives, and the list is complete — a missing file here breaks
      the disjoint-files check silently.
    - **Testable**: each requirement has a scenario a Verify checker could
-     grade the code against without guessing.
+     grade the code against without guessing. The same standard applies to
+     the proposed implementation *approach*, not only requirement text: an
+     approach the critic cannot see how to verify, or sees a concrete way
+     for it to fail, is `blocking` — never advisory — and when the critic
+     can name a fix, that fix is the finding's remedy.
    - **Right size**: smallest change that satisfies the request; flags
      when it should instead be an initiative (see below) or is padded.
    - **Written for agents**: the hard rule at the end of this doc.
@@ -190,15 +213,35 @@ append`, never edited after the fact.
    2. In the same turn, offer to show the full proposal
       (`openspec show <name> --store <slug>`) and ask whether to accept or
       request changes. Showing the full proposal is not itself an answer —
-      still get an accept-or-revise after it. Ask accept-or-revise as a
+      still get an accept-or-revise after it. For a proposal Propose
+      classified as a fast-path fix, the choice gains a third option,
+      **"Accept — light lifecycle."** State what it changes: drafting and
+      `revise` rounds run at `standard` (the critic still resolves one tier
+      above, to `deep`); Apply continues the proposer's worker where the
+      host can resume an agent, else dispatches a fresh `standard` worker;
+      a green gate with `warnings:<m>` skips the sweep round. For a change
+      already drafted at `deep` and critiqued at `max` before this Gate 0,
+      only that last part — the sweep skip — is still ahead of it. State
+      what it never skips: Gate 0 itself, the full gate (incl. the
+      dead-code pass), Verify, the manual-task block, Gate 2. Ask
+      accept-or-revise (or accept/light/revise) as a
       structured choice (e.g. buttons) when the host interface offers one,
       not only as free text — this changes presentation only, never the
-      two valid answers.
+      valid answers.
    3. Record the answer:
       - **Accept** — `scripts/run-change state set --store <slug> --name
         <name> acceptance accepted`. `next` then returns `apply` with
         `set_phase: applying` and clears `acceptance` back to `""`, so a
         later revision of this same change starts Gate 0 clean.
+        `lifecycle` stays `full`.
+      - **Accept — light lifecycle** (offered only for a fast-path
+        proposal) — `scripts/run-change state set --store <slug> --name
+        <name> lifecycle light acceptance accepted` (auto-inits
+        `lifecycle` if unset). `next` then returns `apply` the same as
+        plain Accept. Besides triage opening a bugfix change (**Bugs found
+        mid-run**, below), this is the only way `lifecycle` becomes
+        `light` — the orchestrator never picks it on the human's behalf
+        for any other change.
       - **Request changes** — write what the human wants changed to
         `<store>/.orchestration/state/<name>.feedback.md` (overwritten
         each round, same convention as the critique/verify reports), then
@@ -220,14 +263,22 @@ append`, never edited after the fact.
    Gate 0 once and comes back for a `revise` round goes through it again,
    in full, on the new draft.
 4. **Apply** — implement in dispatch groups, one per seam from the Propose
-   step's seam list (see model/effort tiers below). Before fanning groups
+   step's seam list (see model/effort tiers below). Under `lifecycle: light`,
+   Apply continues the proposer's worker's own session when the host can
+   resume an agent, else it dispatches a fresh `standard` worker; `next`'s
+   output is identical either way. Before fanning groups
    out, run the disjoint-files check below; a change too small to have
    named more than one seam stays a single group. Groups that pass the
    check run concurrently as separate workers in the change's one worktree,
    each confined to its seam's file list (see **Isolation** below: own
-   context, no git writes). When every group in the wave has returned, the
+   context, no git writes). Any test fixture that takes seconds to build —
+   a compiled binary, a bundled app, a container image — is built once per
+   test run into a shared fixture (a `before`/global/session hook, not a
+   per-test or per-file one); Verify reports a per-test or per-file rebuild
+   as a warning. When every group in the wave has returned, the
    orchestrator runs the project's *quick* gate (lint, type check,
-   last-failed tests — `orchestration.gate_quick` from the store's config)
+   last-failed tests — `orchestration.gate_quick` from the store's config,
+   kept under ~30 s; slower work belongs in `gate_full`)
    and commits — never while a worker is still writing.
 5. **Check** — run the project's *full* gate
    (`orchestration.gate_full`, parallelized if the project's test runner
@@ -257,9 +308,16 @@ append`, never edited after the fact.
    context and a model one tier above
    whichever one last wrote code for the change (`scripts/run-change model
    verify --store <slug> --name <name>` — see the generator/checker split
-   under Model/effort routing) reads the proposal and the branch diff and
-   judges whether the code satisfies the proposal. It never sees the
-   implementer's transcript. If the project mapped one or more skills to
+   under Model/effort routing) reads its fixed **input contract** — the
+   proposal, the seam list, the branch diff, and the prior verify report on
+   round 2+ — never the implementer's transcript, and never told to go
+   explore the codebase at large; it may read other files only to confirm
+   a seam is real or a dependency claim true. `model verify` prints this
+   contract as `input:` lines after the bare model id — include them
+   verbatim in the dispatch. It judges whether the code satisfies the
+   proposal; a requirement left as a manual task when a programmatic proxy
+   exists is reported as a `spec` finding, not left unverified silently.
+   If the project mapped one or more skills to
    `test` (**Project-skill stage mapping**), each of them is dispatched
    **concurrently** with this checker, reads the proposal and diff, and
    reports alongside it — not instead of it; the step waits for all of
@@ -269,20 +327,52 @@ append`, never edited after the fact.
    below. Every finding names the proposal requirement, the `file:line`,
    what is wrong, what would satisfy it, and a severity; no finding without
    all five.
-   - `clean` or `warnings:<m>` — pass. Warnings (human-narrative comments,
-     oversized artifacts, the hard rule at the end of this doc) get one
-     mechanical-tier sweep and a quick gate, no re-verify, not a round.
-     Continue to Archive.
+   - `clean`, or `warnings:<m>` under `lifecycle: light` — pass, and the
+     sweep below is skipped. Continue to the manual-task check in Archive
+     (step 7).
+   - `warnings:<m>` under `lifecycle: full` — pass. Warnings
+     (human-narrative comments, oversized artifacts, the hard rule at the
+     end of this doc) get one mechanical-tier sweep and a quick gate, no
+     re-verify, not a round. Then continue to the manual-task check in
+     Archive (step 7).
    - `blocking:<n>` — the code falls short of a proposal requirement. The
      report is the input to a **fix round** (below): set `phase: checking`,
      fix, rerun step 5, then re-run Verify. Out of rounds or not converging
      → **Gate 1** with the latest report.
    - `spec` — the proposal itself is wrong, ambiguous, or silent on what the
-     code does, so no code change can close the finding. → **Gate 1**
+     code does (including a requirement left manual when a programmatic
+     proxy exists), so no code change can close the finding. → **Gate 1**
      immediately: the human owns the spec in autonomous mode, and a fix
      round that edits the proposal would be the code grading itself.
-7. **Archive** — finalize artifacts (`openspec-orchestrator` archive phase),
-   commit on the branch.
+7. **Archive** — runs only from phase `verified`, and getting to `verified`
+   is itself gated on the change's own tasks.md, not just the gate and
+   Verify results above. The action that gets there — `tasks-open`, with
+   `set_phase: verified` — runs `scripts/run-change tasks open --store
+   <slug> --name <name>`: it prints the change's unchecked `- [ ]` task
+   lines and records their count in `manual_tasks_open` (a literal `0`
+   when none are open). At `verified`, `next` checks that count before
+   ever returning `archive`:
+   - `manual_tasks_open` empty — never counted (a fresh or pre-1.3.0 state
+     file, or `verified` recorded by hand) — returns `tasks-open` again,
+     with no `set_phase`; count first.
+   - `manual_tasks_open` greater than 0 and `manual_accept` empty — returns
+     `gate2-manual`: show the human the open task list alongside the
+     verify report, so they can judge each one without waiting for Gate
+     2's material. They resolve it by ticking off each task they confirm
+     done (the orchestrator edits `- [ ]` → `- [x]` in tasks.md, then reruns
+     `tasks open`) or by recording `scripts/run-change state set --store
+     <slug> --name <name> manual_accept accepted:<requirement>[;<requirement>...]`
+     naming the unverified requirements — `accepted:` with nothing after
+     the colon is refused. "Worth trying yourself after merge" is never
+     offered as an answer here.
+   - `manual_tasks_open: 0`, or `manual_accept` set — returns `archive`.
+     Only here does `next` allow `--yes` on `openspec archive`: the CLI
+     (1.13.1) refuses to prompt-skip on a non-TTY over unchecked tasks, and
+     also whenever a delta spec updates even with every task checked, so
+     `--yes` is required for any normal change — the recorded count or
+     `manual_accept` is the guard, never the flag by itself. Archive then
+     finalizes artifacts (`openspec-orchestrator` archive phase) and
+     commits on the branch.
 8. **Merge lane** — `scripts/run-change merge-lane run --store <slug>
    --project <path> --name <name>`: acquire the project's single
    merge lock, merge current trunk into the branch (`origin/<trunk>` when
@@ -295,7 +385,10 @@ append`, never edited after the fact.
    moved, or an Archive commit that touched the worktree (local mode),
    changes the tree and forces the rerun. Red → a fix round (same
    budget). Green or skipped → **Gate 2**: ask the human with a summary
-   (diffstat, gate log, verify report).
+   (diffstat, gate log, verify report, and — when `manual_accept` is set —
+   the accepted-unverified requirements it names; and — under
+   `lifecycle: light` — the unswept Verify warnings, since light skips the
+   mechanical sweep that would otherwise have cleared them).
 9. **Merged** — on approval, squash-merge into trunk (one commit, with the
    trailers below), remove the workspace, release the slot. If the change
    belongs to an initiative, record the commit on it first:
@@ -315,7 +408,11 @@ independent: each one holds even if the others are misconfigured.
   — runs in its own context window. It receives exactly what the
   orchestrator hands it (proposal, its seam's file list, its task, a
   report) plus what it reads from disk itself; never another worker's
-  transcript, and never the orchestrator's. A wrong guess made in one
+  transcript, and never the orchestrator's. For the critic and Verify
+  specifically, "what the orchestrator hands it" is the fixed **checker
+  input contract** (Model/effort routing, below) — never "go explore the
+  codebase"; anything beyond that contract is read only to confirm a seam
+  is real or a dependency claim true. A wrong guess made in one
   window cannot spread to another except through a file, and every file
   that crosses between agents (spec, seam list, state, reports) is
   something the next reader can check against the code. This is the
@@ -387,7 +484,8 @@ the change's state file and session log alone. On `check` it adds `also:
 verify` and `also_model: <id>`: a second, read-only step to dispatch
 concurrently with the first, never a replacement for it. Actions: `propose`,
 `critique`, `revise`, `gate0`, `apply`, `check`, `fix`, `verify`, `sweep`,
-`archive`, `merge-lane`, `gate1`, `gate2`, `wait`, `done`. The caps
+`tasks-open`, `archive`, `merge-lane`, `gate1`, `gate2-manual`, `gate2`,
+`wait`, `done`. The caps
 (`FIX_CAP`, `PROPOSE_CAP`), the fix-round tier ladder, the pass line, and
 the tier-above checker rule all live in `next_action`
 (`scripts/lib.sh`), so the orchestration is deterministic code and the
@@ -417,12 +515,15 @@ this follows from file ownership, not judgement:
 
 - **Inside the current change's scope**: fix in place, counts as a fix
   round. Never split out — a split change would depend on unmerged work.
-- **Outside scope and blocking**: open a bugfix change autonomously (same
-  lifecycle, lighter — skip full planning artifacts, proposal limited to
-  symptom/cause/relations, plus a regression test), add a `depends_on` edge,
-  set the current change to `blocked` with `blocked_on`, release its slot.
-  The fix branches from trunk; once merged, the blocked change merges trunk
-  in and resumes.
+- **Outside scope and blocking**: open a bugfix change autonomously, with
+  `lifecycle: light` set on it (`scripts/run-change state set ... lifecycle
+  light`, which auto-inits — skip full planning artifacts, proposal limited
+  to symptom/cause/relations, plus a regression test), add a `depends_on`
+  edge, set the current change to `blocked` with `blocked_on`, release its
+  slot. The fix branches from trunk; once merged, the blocked change merges
+  trunk in and resumes. Triage here and the human's "Accept — light
+  lifecycle" at Gate 0 are the only two ways `lifecycle` becomes `light` —
+  the orchestrator never picks it for any other change.
 - **Outside scope and not blocking**: record a queued sibling with
   `follows: <current>`, no dependency edge; runs when a slot frees. Fixing
   it in place is scope creep.
@@ -481,15 +582,20 @@ each other forever.
 
 - **Severity is binary.** Every finding is `blocking` (the output fails
   the standard it is judged against: a requirement the code does not meet,
-  a seam that names a wrong file, a part of the request the spec skips) or
+  a seam that names a wrong file, a part of the request the spec skips, an
+  implementation approach the checker cannot see how to verify or sees a
+  concrete way to fail) or
   `warning` (the output is correct but violates the hard rule at the end
-  of this doc). The checker assigns it; the fixer does not reclassify.
+  of this doc). The mechanism finding is never advisory, and its remedy is
+  the fix the checker can name. The checker assigns severity; the fixer
+  does not reclassify.
 - **Pass is defined up front.** A change passes Verify when the full gate
   is green and the report has zero blocking findings. A draft passes
   critique when the report has zero blocking findings. Warnings never
-  block a pass and never start a round: they get one mechanical sweep and
-  move on. Without this line a loop spends its whole budget on comment
-  style.
+  block a pass and never start a round: under `lifecycle: full` they get
+  one mechanical sweep and move on; under `lifecycle: light` the sweep is
+  skipped and the pass goes straight to the manual-task check. Without
+  this line a loop spends its whole budget on comment style.
 - **Budget, and convergence inside it.** Fix rounds cap at 3 per change,
   critique rounds at 2, then Gate 1. But the budget is a ceiling, not a
   target: a round is *converging* only if no finding the prior report
@@ -549,10 +655,14 @@ Pick a tier per task, not per session:
   dead code and unused dependencies the gate's dead-code pass names,
   commit message drafting, first-round red-gate triage (flake vs lint vs
   type vs dead code vs logic).
-- `standard`: ordinary implementation tasks, tests.
-- `deep`: Propose (drafting the delta spec and seam list, every change, not
-  just initiative decomposition), design docs, anything touching an
-  invariant, fix rounds 2 and 3, and Verify of a `standard` implementer.
+- `standard`: ordinary implementation tasks, tests, and — under
+  `lifecycle: light` only — Propose and `revise` (the critic still
+  resolves one tier above, to `deep`, via the generator/checker split
+  below).
+- `deep`: Propose (drafting the delta spec and seam list, every
+  `full`-lifecycle change, not just initiative decomposition — `light`
+  drafts at `standard`), design docs, anything touching an invariant, fix
+  rounds 2 and 3, and Verify of a `standard` implementer.
 - `max`: the strongest model available. Never a task tier: it is reached
   only as the checker of a `deep` generator (the critic of every Propose,
   Verify after a deep fix round).
@@ -579,8 +689,14 @@ implementer is assumed `standard` and the proposer `deep`.
 apply this rule; `next` reports the resulting tier and model on its
 `critique` and `verify` actions. Use these commands' output for the
 checker steps, not `model get` directly. Both checkers run in a fresh
-context (proposal, diff or draft, prior report — never the generator's
-transcript).
+context under the **checker input contract**: critic = request, draft,
+seam list, prior report; Verify = proposal, seam list, branch diff, prior
+report — never the generator's transcript, and never "explore the
+codebase" beyond confirming a seam or a dependency claim. `model
+verify`/`model critic` print the bare model id on line 1, then this
+contract as static `input:` lines (`checker_inputs` in `scripts/lib.sh` —
+it reads no file; it names the `seams` field rather than resolving it). A
+caller that wants only the id pipes the output through `| head -n1`.
 
 Each tier maps to a concrete model, resolved via `scripts/run-change model
 get --store <slug> --tier <tier>` — the store's `openspec/config.yaml`
@@ -722,3 +838,8 @@ checkable artifact, which is exactly what **Isolation** exists to prevent.
   back from git history.
 - Verify reports human-narrative comments and oversized artifacts as
   findings; the fix round for them runs at the mechanical tier.
+- Build seconds-long test artifacts — a compiled binary, a bundled app, a
+  container image, anything that takes real time — once per test run into
+  a shared fixture (a `before`/global/session hook), never rebuilt per
+  test or per file. Verify reports a per-test or per-file rebuild as a
+  warning.

@@ -26,8 +26,10 @@ a target project. It is applied, by the skill, to whichever project it is invoke
   Local mode takes priority over an existing external store for the same project. See
   [SKILL.md § Step 1](SKILL.md).
 - **Execution.** Autonomous: Propose → Apply → Check → Verify → Archive → Merge, end to
-  end, with at most two human checkpoints per change (see flowchart). There is no
-  step-by-step mode.
+  end, with at most two mandatory human checkpoints per change (Gate 1, Gate 2 — Gate 0's
+  acceptance is required too but is part of every round, not a conditional checkpoint),
+  plus a manual task check before Archive whenever the change left tasks unverified (see
+  flowchart). There is no step-by-step mode.
 
 ## Architecture
 
@@ -46,8 +48,10 @@ flowchart TD
     H --> E
     H --> G
 
-    E --> I[Run the 3-phase engine]
-    G --> I
+    E --> TP{Trunk preflight:<br/>gate run --mode full --trunk}
+    G --> TP
+    TP -- red / gate_full unconfigured --> TPSTOP[Stop: show output,<br/>trunk already red, open no change]
+    TP -- green --> I[Run the 3-phase engine]
 
     subgraph I[Autonomous change engine]
         direction TB
@@ -59,7 +63,10 @@ flowchart TD
         P3 -- red or blocking, rounds left --> FIX[Fix round: gate failure<br/>+ verify report together] --> P3
         P3 -- not converging / out of rounds --> GATE1
         P3 -- spec wrong --> GATE1
-        P3 -- green + clean/warnings --> P5[Archive]
+        P3 -- green + clean/warnings --> P4{Manual tasks open?<br/>tasks open}
+        P4 -- yes, unresolved --> GATE2M[["gate2-manual (human)<br/>tick tasks or accept<br/>unverified requirements"]]
+        GATE2M --> P4
+        P4 -- none / accepted --> P5[Archive]
         P5 --> P6[Merge lane: merge trunk in,<br/>rerun full gate only if the tree changed]
         P6 -- red --> FIX
         P6 -- green or unchanged tree --> GATE2[["Gate 2 (human)<br/>approve squash-merge"]]
@@ -133,7 +140,8 @@ depends on but cannot fix for you:
   Parallelize it once shared-state tests are confirmed safe, pinning the ones that are not
   to serial rather than dropping parallelism everywhere.
 - **Quick gate.** Have a cheap lint / type-check / last-failed-tests command available for
-  `gate_quick`; the full suite belongs in `gate_full` (see Configuration).
+  `gate_quick` — keep it under ~30 s; anything slower (the full suite, the dead-code pass)
+  belongs in `gate_full` (see Configuration).
 - **Workspace cost.** Each change gets its own git worktree under the store's
   `.orchestration/workspaces/` (the engine adds the ignore rule itself). Confirm
   dependencies can be installed or linked into a fresh worktree cheaply, and that
@@ -163,14 +171,21 @@ For read-only discovery with no artifacts written:
 
 1. **Routing** — resolves local mode, external-store mode, or prompts once. Recomputed
    from repo state on every invocation; not cached. See [SKILL.md § Step 1](SKILL.md).
-2. **Autonomous run** — Propose (with critique) → Apply → Check + Verify (concurrent) →
+2. **Trunk preflight** — before any change opens: `gate run --mode full --trunk` runs
+   `gate_full` against the trunk ref in a temporary worktree. Red, or `gate_full`
+   unconfigured, stops here; no change is opened and no state is written.
+3. **Autonomous run** — Propose (with critique) → Apply → Check + Verify (concurrent) →
    Archive → Merge lane, with fix rounds and tier escalation handled automatically. No
    approval between phases. The merge lane reruns the full gate only when merging trunk
    changed the tree the gate already passed on.
-3. **Gate 1** (conditional) — raised if critique or Verify cannot converge, or the request
+4. **Manual task check** (conditional, before Archive) — if the change's tasks.md still
+   has unchecked tasks when Verify and the full gate pass, action `gate2-manual` shows the
+   human the open task list alongside the verify report; they tick tasks off or record
+   which unverified requirements to accept. Archive runs only once that is resolved.
+5. **Gate 1** (conditional) — raised if critique or Verify cannot converge, or the request
    is ambiguous. Requires clarification before the change resumes.
-4. **Gate 2** (once, at completion) — diffstat, gate log, and verify report presented for
-   squash-merge approval.
+6. **Gate 2** (once, at completion) — diffstat, gate log, verify report, and any
+   accepted-unverified requirements presented for squash-merge approval.
 
 A request scoped to a single phase (e.g. "just draft the proposal") is still treated as
 the full change; there is no partial-run mode. Stopping early leaves the change `blocked`.

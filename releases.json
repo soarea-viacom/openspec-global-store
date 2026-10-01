@@ -1,3 +1,4 @@
 {
-  "1.0.0": "Initial Atlas catalog release of the openspec-orchestrator skill."
+  "1.0.0": "Initial Atlas catalog release of the openspec-orchestrator skill.",
+  "1.1.0": "Move external OpenSpec store convention to ~/.local/share/openspec/stores/<slug> instead of ~/openspec-stores/<slug>, matching the CLI's own registry location."
 }

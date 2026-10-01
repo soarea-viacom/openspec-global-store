@@ -26,7 +26,7 @@ orchestration_dir() {
 
 # Orchestration config lives in the resolved store's openspec/config.yaml.
 # In external mode the store's local_path is a separate directory
-# (~/openspec-stores/<slug>) from the project; in local mode (SKILL.md
+# (~/.local/share/openspec/stores/<slug>) from the project; in local mode (SKILL.md
 # Step 1) the store's local_path IS the project itself, so this resolves
 # to the project's own openspec/config.yaml. Either way there's exactly
 # one config file per change, at whatever store_path() returns.

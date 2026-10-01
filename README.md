@@ -19,7 +19,7 @@ a target project. It is applied, by the skill, to whichever project it is invoke
   given project:
   - a project with a local `openspec/` folder uses it (**local mode**);
   - a project with neither a local folder nor a registered store gets an **external
-    store** under `~/openspec-stores/<slug>/`, leaving the project's directory and git
+    store** under `~/.local/share/openspec/stores/<slug>/`, leaving the project's directory and git
     history untouched by OpenSpec;
   - a project with neither is asked once, at first invocation.
 
@@ -41,7 +41,7 @@ flowchart TD
     C --> D{Local openspec/<br/>folder exists?}
     D -- yes --> E[LOCAL MODE<br/>register project itself as the store]
     D -- no --> F{Store already<br/>registered for this slug?}
-    F -- yes --> G[EXTERNAL MODE<br/>use ~/openspec-stores/&lt;slug&gt;]
+    F -- yes --> G[EXTERNAL MODE<br/>use ~/.local/share/openspec/stores/&lt;slug&gt;]
     F -- no --> H[Ask user:<br/>local or external?]
     H --> E
     H --> G
@@ -180,10 +180,10 @@ the full change; there is no partial-run mode. Stopping early leaves the change 
 | | Local mode | External mode |
 |---|---|---|
 | Applies when | Project has (or the user chose) `openspec/` in the project | Project has neither, or a store is already registered |
-| Artifact location | `<project>/openspec/` | `~/openspec-stores/<slug>/openspec/` |
+| Artifact location | `<project>/openspec/` | `~/.local/share/openspec/stores/<slug>/openspec/` |
 | Project git history | Includes artifacts | Untouched by OpenSpec |
 | Registration | Project registered as the store (`openspec store setup <slug> --path <project> --no-init-git`) | Separate directory registered as the store, with its own git history |
-| Config location | `<project>/openspec/config.yaml` | `~/openspec-stores/<slug>/openspec/config.yaml` |
+| Config location | `<project>/openspec/config.yaml` | `~/.local/share/openspec/stores/<slug>/openspec/config.yaml` |
 
 `openspec store remove` must not be run on a local-mode store: its `local_path` is the
 project root, and `--yes` deletes project files.

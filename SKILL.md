@@ -62,6 +62,7 @@ Every OpenSpec CLI call below gets `--store <slug>` appended — e.g. `openspec 
   - Read active code boundaries and structural modules.
   - Draft explicit architectural intent into a temporary delta spec.
   - Predict potential side effects or breaking changes in downstream dependencies.
+  - **Fast path for simple, non-breaking fixes:** when the request is a small, clearly non-breaking fix (e.g. a typo, a localized bug fix, no change to a public API, schema, or any contract another caller relies on), skip the extended exploration above and draft the smallest delta spec that captures the fix, then send it straight to critique. Gate 0 still fires unchanged — the human still sees and accepts the short resume before Apply starts. This path only shortens how much drafting happens before critique, never the gate itself. If, once the code is examined, the fix turns out to touch a public API, change behavior other code depends on, require a migration, or otherwise ripple outside the local fix, abandon the fast path and run full Phase 1 exploration instead.
 - **Phase 2: Active Implementation**
   - Write modular, self-documenting code that maps 1:1 with the finalized proposal.
   - Implement accompanying integration or unit tests simultaneously.
@@ -98,6 +99,11 @@ Propose with that feedback as new context, reruns critique, and ends in a
 new short resume — the same gate, not a one-time checkpoint. This loop has
 no round cap: it repeats until the human accepts, and nothing downstream
 of Gate 0 ever runs against an unaccepted proposal.
+
+Gate 0's accept-or-revise question — and any other gate whose answer is one
+of a small fixed set — must be asked as a structured choice (e.g. buttons)
+when the host interface offers one, not only as free text. This changes how
+the choice is presented, never what is asked or which answers are valid.
 
 Beyond Gate 0, the flow asks the human only when something is blocked or
 failing (Gate 1) or right before merge (Gate 2) — never for other routine

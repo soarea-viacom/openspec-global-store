@@ -115,7 +115,13 @@ append`, never edited after the fact.
    project mapped its own skill to `plan` (**Project-skill stage mapping**
    under Model/effort routing), in which case that skill drafts instead.
    Draft the delta spec via the normal `openspec-orchestrator` propose phase, scoped
-   to the workspace, `--store <slug>`. Before drafting prose, sketch the
+   to the workspace, `--store <slug>`. For a request that is a small, clearly
+   non-breaking fix (no change to a public API, schema, or any contract
+   another caller relies on), skip the extended exploration otherwise done
+   here and draft the smallest delta spec that captures the fix — the tier
+   stays `deep` either way, only how much is explored before drafting
+   shrinks. Reclassify and explore fully if the fix turns out to touch a
+   public contract once the code is examined. Before drafting prose, sketch the
    **seams** the change touches:
    existing seams preferred over new ones, fewest possible (one is ideal),
    each seam named with the files/modules behind it. Write this seam list
@@ -184,7 +190,10 @@ append`, never edited after the fact.
    2. In the same turn, offer to show the full proposal
       (`openspec show <name> --store <slug>`) and ask whether to accept or
       request changes. Showing the full proposal is not itself an answer —
-      still get an accept-or-revise after it.
+      still get an accept-or-revise after it. Ask accept-or-revise as a
+      structured choice (e.g. buttons) when the host interface offers one,
+      not only as free text — this changes presentation only, never the
+      two valid answers.
    3. Record the answer:
       - **Accept** — `scripts/run-change state set --store <slug> --name
         <name> acceptance accepted`. `next` then returns `apply` with

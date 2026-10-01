@@ -106,6 +106,23 @@ ln -s "$(pwd)" ~/.claude/skills/openspec-orchestrator
 
 A plain copy works as well; it requires re-copying after updates.
 
+### Install via Atlas
+
+This repository is also a single-skill [Atlas](https://atlas.docs.paramount.tech/) catalog
+(`atlas-catalog.json` at the repo root), the same distribution mechanism used by
+[`architectural-agentic-skills`](https://github.com/paramount-streaming/architectural-agentic-skills).
+With the [Atlas CLI](https://atlas.docs.paramount.tech/) installed (`npm i -g @paramount/atlas-cli`),
+add this repo as a catalog and install the skill:
+
+```bash
+atlas add-catalog https://github.com/soarea-viacom/openspec-orchestrator.git
+atlas install-skill openspec-orchestrator
+```
+
+Future releases are picked up with `atlas update-skill openspec-orchestrator`, and
+`atlas versions-skill openspec-orchestrator` lists available versions. This is an
+alternative to the symlink/clone install above, not a replacement — either works.
+
 ### Preparing a target project
 
 Before running the skill on a project for the first time, check the things the engine

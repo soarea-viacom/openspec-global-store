@@ -1,0 +1,13 @@
+{
+  "skills": {
+    "openspec-orchestrator": {
+      "description": "Spec-driven development workflow (propose a delta spec before touching code, implement against the approved proposal with tests, archive into the living spec). Routes OpenSpec artifacts to whichever root fits the project — an already-existing local openspec/ folder (used as-is, always takes priority), or an external store when there is no local folder, asking the user which to use for a project that has neither. When routed externally, the target project's directory and git history are otherwise untouched by OpenSpec. Always runs autonomously through Propose/Apply/Archive, but always pauses once per proposal round — before any code is written — for the human to accept a short resume of what is about to be implemented (or ask for the full proposal, or request changes, which redrafts and shows a new resume); beyond that mandatory pause it asks the human only when something is wrong, and there is no other step-by-step mode. Use when the user wants to add/change a feature under spec control, invokes /sdd:explore for read-only discovery, or asks to orchestrate/route OpenSpec locally or to an external store.",
+      "path": "SKILL.md",
+      "teams": ["*"],
+      "required": false
+    }
+  },
+  "agents": {},
+  "mcpServers": {},
+  "hooks": {}
+}
